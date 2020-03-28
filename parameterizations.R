@@ -23,6 +23,48 @@ setnames(data,
 
 setnames(data,"Adjustedfouryearmovingaverag","inflation")
 
+data[,GDP := RealGDPBillionof2012prices/shift(RealGDPBillionof2012prices) - 1]
+data[,P := 1/(1-ProfitShare)]
+data[,MA_GDP5 := (GDP+shift(GDP,1)+shift(GDP,2)+shift(GDP,1,type='lead')+shift(GDP,2,type='lead'))/5]
+data[,MA_GDP9 := (GDP+shift(GDP,1)+shift(GDP,2)+shift(GDP,3)+shift(GDP,4)+shift(GDP,1,type='lead')+shift(GDP,2,type='lead')+shift(GDP,3,type='lead')+shift(GDP,4,type='lead'))/9]
+data[,MA_GDP := (GDP+shift(GDP,1)+shift(GDP,1,type='lead'))/3]
+data[,logP := log(P)]
+data[,loglagP := log(shift(P))]
+mod = lm(P~MA_GDP,data=data)
+data[,Phat := mod$coefficients[1]+mod$coefficients[2]*MA_GDP]
+data[,Presid := P - Phat + mean(P, na.rm = T)]
+data[,logPresid := log(Presid)]
+data[,loglagPresid := log(shift(Presid))]
+
+data[,productivity1:=shift(tfpgrowth,1)]
+data[,productivity2:=shift(tfpgrowth,2)]
+data[,productivity3:=shift(tfpgrowth,3)]
+data[,productivity4:=shift(tfpgrowth,4)]
+data[,productivity5:=shift(tfpgrowth,5)]
+
+test = nls(logPresid~a0 + a1*loglagPresid+a2*productivity1+a2^2*productivity2+a2^3*productivity3+a2^4*productivity4+a2^5*productivity5
+           ,data=data[Year>1928.5&Year<1984.5], start = list(a0 = 0, a1 = 0, a2 = 0), trace = T,algorithm = 'port',lower=c(-1000,-1000,-1000), upper=c(1000,1000,1000))
+summary(test)
+test = nls(logPresid~a0 + a1*loglagPresid+a2*productivity1+a2^2*productivity2+a2^3*productivity3+a2^4*productivity4+a2^5*productivity5
+           ,data=data[Year<1901.5|Year>1984.5], start = list(a0 = 0, a1 = 0, a2 = 0), trace = T,algorithm = 'port',lower=c(-1000,-1000,-1000), upper=c(1000,1000,1000))
+summary(test)
+
+summary(lm(logPresid ~ loglagPresid + productivity1+productivity2+productivity3+productivity4+productivity5
+           ,data=data[Year>1928.5&Year<1984.5]))
+summary(lm(logPresid ~ loglagPresid + productivity1+productivity2+productivity3+productivity4+productivity5
+           ,data=data[Year<1901.5|Year>1984.5]))
+
+
+
+
+
+
+
+
+
+
+
+
 data[,logprofits := log(pmax(ProfitShare,0.01))]
 data[,logLAGprofitshigh := log(pmax(Profitshare1,0.01))*((Year>1888.5&Year<1901.5)|(Year>1984.5&Year<2017.5))]
 data[,logLAGprofitslow := log(pmax(Profitshare1,0.01))*(Year>1931.5&Year<1984.5)]

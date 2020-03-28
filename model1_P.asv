@@ -1,12 +1,23 @@
 % Calls: model1.m num_eval.m  model1_ss_numeric.m gx_hx.m gxx_hxx.m gss_hss.m
 
-function [k_sim,c_sim,l_sim,r_sim,w_sim,y_sim]=model1_P(P,approx,k_sim_,Z_sim_,Z_sim,LAMBDAZ,sigma_Z,BETTA,DELTA,ALFA,ETA,GAMA,G,eta,ZSTAR,force)
+function [k_sim,c_sim,l_sim,r_sim,w_sim,y_sim]=model1_P(P,approx,k_sim_,Z_sim_,Z_sim,LAMBDAZ,sigma_Z,BETTA,DELTA,ALFA)
 
 [fx,fxp,fy,fyp,fypyp,fypy,fypxp,fypx,fyyp,fyy,fyxp,fyx,fxpyp,fxpy,fxpxp,fxpx,fxyp,fxy,fxxp,fxx,f] = model1;
 
+% Numerical Evaluation
+% Steady State and Parameter Values
+BETTA   = 0.96; %discount rate
+DELTA   = 0.12;  %depreciation rate
+ALFA    = 0.32;  %capital share
+ETA     = 1.5;
+G       = 1.018;
+LAMBDAP = 0.785; %reg 1931-1985 and 1889-1901 & 1985- to estimate lambdap
+MU = 0.5; %reg 1931-1985 and 1889-1901 & 1985- to estimate lambdap
+eta     = [0 1]'; %Matrix defining driving force
+
 ZSTAR = 1; %steady-state value of technology shock 
 
-[KSTAR,CSTAR,LSTAR]=model1_ss_numeric(DELTA,ALFA,BETTA,G,P,ETA,GAMA,ZSTAR);
+[KSTAR,CSTAR,LSTAR]=model1_ss_numeric(DELTA,ALFA,BETTA,G,P,ETA,ZSTAR);
 
 k=KSTAR; c=CSTAR; l=LSTAR; Z=ZSTAR;
 kp=k; cp=c; lp=l; Zp=Z;
@@ -31,10 +42,6 @@ else
 end
 
 k_sim=dec_k*[1,k_sim_-KSTAR,Z_sim_-1,(k_sim_-KSTAR)^2,(k_sim_-KSTAR)*(Z_sim_-1),(Z_sim_-1)^2,sigma_Z^2]';
-if force
-    k_sim = k_sim_; %allows exogenous k for period 1
-end
-    
 c_sim=dec_c*[1,k_sim-KSTAR,Z_sim-1,(k_sim-KSTAR)^2,(k_sim-KSTAR)*(Z_sim-1),(Z_sim-1)^2,sigma_Z^2]';
 l_sim=dec_l*[1,k_sim-KSTAR,Z_sim-1,(k_sim-KSTAR)^2,(k_sim-KSTAR)*(Z_sim-1),(Z_sim-1)^2,sigma_Z^2]';
 w_sim=Z_sim/P*(1-ALFA)*k_sim^ALFA*l_sim^(-ALFA);
