@@ -1,28 +1,24 @@
 % model1_run.M
 % Calls: model1.m num_eval.m  model1_ss_numeric.m gx_hx.m gxx_hxx.m gss_hss.m
-
-clear all
+function [rgk_mat] = model1_run(DELTA,ALFA,BETTA,G,SIGM,LAMBDAP,LAMBDAZ,sigma_Z,sigma_P,MU,FRISCHELAS,STEADYSTATEL,T,shock,k0_mult)
 
 [fx,fxp,fy,fyp,fypyp,fypy,fypxp,fypx,fyyp,fyy,fyxp,fyx,fxpyp,fxpy,fxpxp,fxpx,fxyp,fxy,fxxp,fxx,f] = model1;
 
-% Numerical Evaluation
-% Steady State and Parameter Values
-% choose omega/1+eta such that lstar = .2
-BETTA   = 0.96; %discount rate
-DELTA   = 0.12;  %depreciation rate
-ALFA    = 0.32;  %capital share
-ETA     = 1.5;
-P       = 1.025;
-G       = 1.018;
-LAMBDAZ = 0.96;
-LAMBDAP = 0.95; %reg 1931-1985 and 1889-1901 & 1985- to estimate lambdap
-MU = 0.5; %reg 1931-1985 and 1889-1901 & 1985- to estimate lambdap
+defaults = [0.12,0.32,0.96,1.01,0.9,0.95,0.89,0.0072,0.005,0.35,0.5,0.3,10,0,1];
+var={'DELTA','ALFA','BETTA','G','SIGM','LAMBDAP','LAMBDAZ','sigma_Z','sigma_P','MU','FRISCHELAS','STEADYSTATEL','T','shock','k0_mult'};
+
+for i = 1:length(defaults)
+    if ~exist(var{i},'var')
+        eval(sprintf('%s = %g',var{i},defaults(i)))
+    end
+end
+
+P       = G^(1/(1-LAMBDAP));
 eta     = [0 1]'; %Matrix defining driving force
-sigma_Z = 0.0072;
-GAMA = 32.1;
-sheetloc = 'Z3';
-shock = -0.015;
-k0_mult = 0.5;
+ETA     = 1/FRISCHELAS;
+T_Psims = T;
+
+%lower the bounds on the casadi lbg's
 
 % impulse response functions setup
 irf=0;
@@ -30,16 +26,16 @@ Z_shock=sigma_Z;
 
 % simulations setup
 simulations=0;
-T=100;
-T_Psims = 40;
+% T=100;
+% T_Psims = 40;
 stats=0;
-Loop_P=1;
-Sim_P=0;
+Loop_P=0;
+Sim_P=1;
 Euler_Error = 0;
 
 ZSTAR = 1; %steady-state value of technology shock 
 
-[KSTAR,CSTAR,LSTAR,WSTAR,RSTAR]=model1_ss_numeric(DELTA,ALFA,BETTA,G,P,ETA,GAMA,ZSTAR);
+[KSTAR,CSTAR,LSTAR,WSTAR,RSTAR,GAMA]=model1_ss_numericsetGAMA(DELTA,ALFA,BETTA,G,P,ETA,STEADYSTATEL,SIGM,ZSTAR); %#ok<ASGLU>
 
 k=KSTAR; c=CSTAR; l=LSTAR; Z=ZSTAR;
 kp=k; cp=c; lp=l; Zp=Z;
@@ -121,8 +117,12 @@ if irf
 end
 
 rng(13466910,'twister');
-rho_zeta = normrnd(0,sigma_Z,[1 T]);
-    
+rho_zeta = normrnd(0,sigma_Z,[1 max(T,T_Psims)]);
+rho_zeta(1:5)=shock;
+
+rng(20,'twister');
+rho_P = normrnd(0,sigma_P,[1 T_Psims]);
+        
 if simulations
     fprintf('\n mean(rho_zeta)=%g, estimated=%g\n',0, mean(rho_zeta))
     fprintf('sigma_Z=%g, estimated=%g\n\n', sigma_Z, std(rho_zeta))
@@ -204,10 +204,9 @@ end
         LP=length(Pl);
         
         k_P(1:LP)=KSTAR*k0_mult;
-        Z_P=ones([1 LP])*exp(shock);
-        rho_zeta(1:5)=shock;
+        Z_P=ones([1 LP])*exp(rho_zeta(1));
         
-        [~,cstart,lstart,rstart,wstart,ystart]=model1_P(Pl(1),approx,k_P(1),Z_P(1),Z_P(1),LAMBDAZ,sigma_Z,BETTA,DELTA,ALFA,ETA,GAMA,G,eta,ZSTAR,1);
+        [~,cstart,lstart,rstart,wstart,ystart]=model1_P(Pl(1),approx,k_P(1),Z_P(1),Z_P(1),LAMBDAZ,sigma_Z,BETTA,DELTA,ALFA,ETA,GAMA,SIGM,G,eta,ZSTAR,1);
         c_P(1:LP)=cstart;
         l_P(1:LP)=lstart;
         r_P(1:LP)=rstart;
@@ -216,9 +215,9 @@ end
       
         for i=2:LP
             Z_P(i)=Z_P(i-1)^LAMBDAZ*exp(rho_zeta(i));
-            [k_P(i),c_P(i),l_P(i),r_P(i),w_P(i),y_P(i)]=model1_P(Pl(i),approx,k_P(i-1),Z_P(i-1),Z_P(i),LAMBDAZ,sigma_Z,BETTA,DELTA,ALFA,ETA,GAMA,G,eta,ZSTAR,0);
+            [k_P(i),c_P(i),l_P(i),r_P(i),w_P(i),y_P(i)]=model1_P(Pl(i),approx,k_P(i-1),Z_P(i-1),Z_P(i),LAMBDAZ,sigma_Z,BETTA,DELTA,ALFA,ETA,GAMA,SIGM,G,eta,ZSTAR,0);
         end
-        g_P = [0,(G*y_P(2:LP)-y_P(1:LP-1))./y_P(1:LP-1)];
+        g_P = [NaN,(G*y_P(2:LP)-y_P(1:LP-1))./y_P(1:LP-1)];
         figure(3)
         subplot(2,3,1)
         plot(Pl,k_P)
@@ -242,36 +241,33 @@ end
         %close(3)
     
     end
-    
-    filename = 'KDynamicsExogenousP.xlsx';
-    writematrix([r_P',g_P',k_P',Pl',Z_P'],filename,'Sheet',1,'Range',sheetloc)
-    
+        
     if Sim_P
-        LP=min(T_Psims,T);
+        LP=T_Psims;
         
-        k_P=ones([1 LP])*KSTAR*.7;
-        c_P=ones([1 LP])*c_sim(1);
-        l_P=ones([1 LP])*l_sim(1);
-        Z_P=ones([1 LP])*Z_sim(1)*exp(0);
-        rho_zeta(1:5)=0;
-        r_P=ones([1 LP])*r_sim(1);
-        w_P=ones([1 LP])*w_sim(1);
-        y_P=k_P.^ALFA.*l_P.^(1-ALFA);
-        sigma_P = 0.005;
+        k_P=ones([1 LP])*KSTAR*k0_mult;
+        Z_P=ones([1 LP])*exp(rho_zeta(1));
+                
         
-        rng(20,'twister');
-        rho_P = normrnd(0,sigma_P,[1 LP]);
+        P_P=ones([1 LP])*P; %G^(1/(1-LAMBDAP));
+        P_P(1) = G * P_P(1)^LAMBDAP * Z_P(1)^(MU) * Z_P(1)^(MU^2) * Z_P(1)^(MU^3) * Z_P(1)^(MU^4) * Z_P(1)^(MU^5)*exp(rho_P(1));
         
-        P_P=ones([1 LP])*1.05; %G^(1/(1-LAMBDAP));
+        [~,cstart,lstart,rstart,wstart,ystart]=model1_P(P_P(1),approx,k_P(1),Z_P(1),Z_P(1),LAMBDAZ,sigma_Z,BETTA,DELTA,ALFA,ETA,GAMA,SIGM,G,eta,ZSTAR,1);
+        c_P(1:LP)=cstart;
+        l_P(1:LP)=lstart;
+        r_P(1:LP)=rstart;
+        w_P(1:LP)=wstart;
+        y_P(1:LP)=ystart;
         
-        mu_mat = [MU,MU^2,MU^3,MU^4,MU^5];
+        
+        %mu_mat = [MU,MU^2,MU^3,MU^4,MU^5];
       
         for i=2:LP
             Z_P(i)=Z_P(i-1)^LAMBDAZ*exp(rho_zeta(i));
             P_P(i) = G * P_P(i-1)^LAMBDAP * Z_P(i-1)^(MU) * Z_P(max(i-2,1))^(MU^2) * Z_P(max(i-3,1))^(MU^3) * Z_P(max(i-4,1))^(MU^4) * Z_P(max(i-5,1))^(MU^5)*exp(rho_P(i));
-            [k_P(i),c_P(i),l_P(i),r_P(i),w_P(i),y_P(i)]=model1_P(P_P(i),approx,k_P(i-1),Z_P(i-1),Z_P(i),LAMBDAZ,sigma_Z,BETTA,DELTA,ALFA,ETA,GAMA,G,eta,ZSTAR,0);
+            [k_P(i),c_P(i),l_P(i),r_P(i),w_P(i),y_P(i)]=model1_P(P_P(i),approx,k_P(i-1),Z_P(i-1),Z_P(i),LAMBDAZ,sigma_Z,BETTA,DELTA,ALFA,ETA,GAMA,SIGM,G,eta,ZSTAR,0);
         end
-        g_P = [0,(G*y_P(2:LP)-y_P(1:LP-1))./y_P(1:LP-1)];
+        g_P = [NaN,(G*y_P(2:LP)-y_P(1:LP-1))./y_P(1:LP-1)];
         figure(3)
         subplot(2,3,1)
         plot(k_P)
@@ -295,3 +291,10 @@ end
 %         close(3)
     
     end
+    
+rgk_mat = [r_P',g_P',k_P',P_P',Z_P'];
+if exist('filename','var')   
+    writematrix(rgk_mat,filename,'Sheet',1,'Range',sheetloc)
+end
+
+end

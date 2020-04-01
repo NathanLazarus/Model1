@@ -1,12 +1,12 @@
 % Calls: model1.m num_eval.m  model1_ss_numeric.m gx_hx.m gxx_hxx.m gss_hss.m
 
-function [k_sim,c_sim,l_sim,r_sim,w_sim,y_sim]=model1_P(P,approx,k_sim_,Z_sim_,Z_sim,LAMBDAZ,sigma_Z,BETTA,DELTA,ALFA,ETA,GAMA,G,eta,ZSTAR,force)
+function [k_sim,c_sim,l_sim,r_sim,w_sim,y_sim]=model1_P(P,approx,k_sim_,Z_sim_,Z_sim,LAMBDAZ,sigma_Z,BETTA,DELTA,ALFA,ETA,GAMA,SIGM,G,eta,ZSTAR,force)
 
 [fx,fxp,fy,fyp,fypyp,fypy,fypxp,fypx,fyyp,fyy,fyxp,fyx,fxpyp,fxpy,fxpxp,fxpx,fxyp,fxy,fxxp,fxx,f] = model1;
 
 ZSTAR = 1; %steady-state value of technology shock 
 
-[KSTAR,CSTAR,LSTAR]=model1_ss_numeric(DELTA,ALFA,BETTA,G,P,ETA,GAMA,ZSTAR);
+[KSTAR,CSTAR,LSTAR]=model1_ss_numeric(DELTA,ALFA,BETTA,G,P,ETA,GAMA,SIGM,ZSTAR);
 
 k=KSTAR; c=CSTAR; l=LSTAR; Z=ZSTAR;
 kp=k; cp=c; lp=l; Zp=Z;
