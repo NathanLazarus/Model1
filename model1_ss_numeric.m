@@ -1,39 +1,40 @@
-function [KSTAR,CSTAR,LSTAR,WSTAR,RSTAR]=model1_ss_numeric(DELTA,ALFA,BETTA,G,P,ETA,GAMA,SIGM,ZSTAR)
+function [KSTAR,CSTAR,LSTAR,WSTAR,RSTAR]=model1_ss_numeric(DELTA,ALFA,BETTA,G,P,ETA,GAMA,SIGM,ZSTAR,u)
 % This program computes the steady state 
 
+sym_labor_supply = laborsupply(u);
 
-cs = casadi.SX.sym('cstar', 1, 1);
-ls = casadi.SX.sym('lstar', 1, 1);
-ks = casadi.SX.sym('kstar', 1, 1);
+cs = casadi.SX.sym('cs');
+ls = casadi.SX.sym('ls');
+ks = casadi.SX.sym('ks');
 
 
 x = vertcat(cs, ls, ks);
-x0 = ones(3);
+x0 = ones([3 1]);
 obj = 1;
 
-nlp = struct('f', obj, 'x', x, 'g', constraint(cs,ls,ks,DELTA,ALFA,BETTA,G,P,ETA,GAMA,SIGM,ZSTAR));
+nlp = struct('f', obj, 'x', x, 'g', constraint(cs,ls,ks,DELTA,ALFA,BETTA,G,P,ETA,GAMA,SIGM,ZSTAR,sym_labor_supply));
 
 opts=struct;
 opts.print_time=0;
 opts.ipopt.print_level=0;
-S = casadi.nlpsol('S', 'ipopt', nlp,opts);
+solver = casadi.nlpsol('solver', 'ipopt', nlp,opts);
 
-sol = S('x0', x0,...
-            'lbg', -1e-8, 'ubg', 1e-8);
+sol = solver('x0', x0,'lbg', -1e-8, 'ubg', 1e-8);
 
 solution = full(sol.x(:,1));
 
 CSTAR = solution(1);
 LSTAR = solution(2);
 KSTAR = solution(3);
-WSTAR=ZSTAR/P*(1-ALFA)*KSTAR^ALFA*LSTAR^(-ALFA);
-RSTAR=ZSTAR/P*ALFA*KSTAR^(ALFA-1)*LSTAR^(1-ALFA)-DELTA;
+WSTAR = w_func(KSTAR,LSTAR,P,ZSTAR,ALFA);
+RSTAR = little_r(KSTAR,LSTAR,P,ZSTAR,ALFA,DELTA);
 
 end
 
-function [constraintval] =  constraint(C,L,K,DELTA,ALFA,BETTA,G,P,ETA,GAMA,SIGM,ZSTAR)
- constraintval = [C + G*K - (1-DELTA) * K - ZSTAR * K^ALFA * L^(1-ALFA);...
-     1 - (BETTA/G) * ((1/P) * ZSTAR * ALFA * K^(ALFA-1)*L^(1-ALFA) + 1 - DELTA);...
-     GAMA * L^ETA * C^SIGM - (1/P) * (1-ALFA) * ZSTAR * K^ALFA * L^(-ALFA)];
+function [constraintval] =  constraint(c,l,k,DELTA,ALFA,BETTA,G,P,ETA,GAMA,SIGM,ZSTAR,sym_labor_supply)
+ constraintval = ...
+ 	[c + G*k - (1-DELTA) * k - ZSTAR * k^ALFA * l^(1-ALFA);...
+     1 - (BETTA/G) * big_R(k,l,P,ZSTAR,ALFA,DELTA);...
+     eval(sym_labor_supply) + w_func(k,l,P,ZSTAR,ALFA)];
 end
 

@@ -1,11 +1,9 @@
 % model1_run.M
 % Calls: model1.m num_eval.m  model1_ss_numeric.m gx_hx.m gxx_hxx.m gss_hss.m
-function [rgk_mat] = model1_run(DELTA,ALFA,BETTA,G,SIGM,LAMBDAP,LAMBDAZ,sigma_Z,sigma_P,MU,FRISCHELAS,STEADYSTATEL,T,shock,k0_mult)
+function [rgwkcl_mat] = model1_run(DELTA,ALFA,BETTA,G,SIGM,LAMBDAP,LAMBDAZ,sigma_Z,sigma_P,MU,FRISCHELAS,STEADYSTATEL,T,shock,k0_mult,MultiplicativeU)
 
-[fx,fxp,fy,fyp,fypyp,fypy,fypxp,fypx,fyyp,fyy,fyxp,fyx,fxpyp,fxpy,fxpxp,fxpx,fxyp,fxy,fxxp,fxx,f] = model1;
-
-defaults = [0.12,0.32,0.96,1.01,0.9,0.95,0.89,0.0072,0.005,0.35,0.5,0.3,10,0,1];
-var={'DELTA','ALFA','BETTA','G','SIGM','LAMBDAP','LAMBDAZ','sigma_Z','sigma_P','MU','FRISCHELAS','STEADYSTATEL','T','shock','k0_mult'};
+defaults = [0.12,0.32,0.96,1.018,0.9,0.95,0.896,0.0072,0.005,0.35,0.5,0.3,10,0,1,0];
+var={'DELTA','ALFA','BETTA','G','SIGM','LAMBDAP','LAMBDAZ','sigma_Z','sigma_P','MU','FRISCHELAS','STEADYSTATEL','T','shock','k0_mult','MultiplicativeU'};
 
 for i = 1:length(defaults)
     if ~exist(var{i},'var')
@@ -13,9 +11,16 @@ for i = 1:length(defaults)
     end
 end
 
+if MultiplicativeU
+    u = multiplicative_u;
+else
+    u = additive_u;
+end
+
+[fx,fxp,fy,fyp,fypyp,fypy,fypxp,fypx,fyyp,fyy,fyxp,fyx,fxpyp,fxpy,fxpxp,fxpx,fxyp,fxy,fxxp,fxx,f] = model1(u);
+
 P       = G^(1/(1-LAMBDAP));
 eta     = [0 1]'; %Matrix defining driving force
-ETA     = 1/FRISCHELAS;
 T_Psims = T;
 
 %lower the bounds on the casadi lbg's
@@ -23,6 +28,7 @@ T_Psims = T;
 % impulse response functions setup
 irf=0;
 Z_shock=sigma_Z;
+T_irf = T;
 
 % simulations setup
 simulations=0;
@@ -35,7 +41,8 @@ Euler_Error = 0;
 
 ZSTAR = 1; %steady-state value of technology shock 
 
-[KSTAR,CSTAR,LSTAR,WSTAR,RSTAR,GAMA]=model1_ss_numericsetGAMA(DELTA,ALFA,BETTA,G,P,ETA,STEADYSTATEL,SIGM,ZSTAR); %#ok<ASGLU>
+[KSTAR,CSTAR,LSTAR,WSTAR,RSTAR,GAMA,ETA]=model1_ss_numericsetGAMAandETA(DELTA,ALFA,BETTA,G,P,FRISCHELAS,STEADYSTATEL,SIGM,ZSTAR,u);
+
 
 k=KSTAR; c=CSTAR; l=LSTAR; Z=ZSTAR;
 kp=k; cp=c; lp=l; Zp=Z;
@@ -49,71 +56,65 @@ num_eval
 %First-order approximation
 [gx,hx] = gx_hx(nfy,nfx,nfyp,nfxp);
 
+flatten = @(A) A(:);
+
 if approx == 2
     %Second-order approximation
     [gxx,hxx] = gxx_hxx(nfx,nfxp,nfy,nfyp,nfypyp,nfypy,nfypxp,nfypx,nfyyp,nfyy,nfyxp,nfyx,nfxpyp,nfxpy,nfxpxp,nfxpx,nfxyp,nfxy,nfxxp,nfxx,hx,gx); 
 
     [gss,hss] = gss_hss(nfx,nfxp,nfy,nfyp,nfypyp,nfypy,nfypxp,nfypx,nfyyp,nfyy,nfyxp,nfyx,nfxpyp,nfxpy,nfxpxp,nfxpx,nfxyp,nfxy,nfxxp,nfxx,hx,gx,gxx,eta);
-    dec_k=[KSTAR,hx(1,1),hx(1,2),1/2*hxx(1,1,1),hxx(1,2,1),1/2*hxx(1,2,2),1/2*hss(1)]; 
-    dec_l=[LSTAR,gx(1,1),gx(1,2),1/2*gxx(1,1,1),gxx(1,2,1),1/2*gxx(1,2,2),1/2*gss(1)];
-    dec_c=[CSTAR,gx(2,1),gx(2,2),1/2*gxx(2,1,1),gxx(2,2,1),1/2*gxx(2,2,2),1/2*gss(2)];
+    dec_k=[KSTAR,hx(1,:),1/2*flatten(hxx(1,:,:))',1/2*hss(1)];
+    dec_l=[LSTAR,gx(1,:),1/2*flatten(gxx(1,:,:))',1/2*gss(1)];
+    dec_c=[LSTAR,gx(2,:),1/2*flatten(gxx(2,:,:))',1/2*gss(2)];
 else
-    dec_k=[KSTAR,hx(1,1),hx(1,2),0,0,0,0]; 
-    dec_l=[LSTAR,gx(1,1),gx(1,2),0,0,0,0];
-    dec_c=[CSTAR,gx(2,1),gx(2,2),0,0,0,0];
+    dec_k=[KSTAR,hx(1,:),0,0,0,0,0]; 
+    dec_l=[LSTAR,gx(1,:),0,0,0,0,0];
+    dec_c=[CSTAR,gx(2,:),0,0,0,0,0];
 end
 
 if irf
-    k(1)=KSTAR;
-    c(1)=CSTAR;
-    Z(1)=ZSTAR;
-    l(1)=LSTAR;
-    w(1)=WSTAR;
-    r(1)=RSTAR;
+    k(1:T_irf)=KSTAR;
+    c(1:T_irf)=CSTAR;
+    Z(1:T_irf)=ZSTAR;
+    l(1:T_irf)=LSTAR;
+    w(1:T_irf)=WSTAR;
+    r(1:T_irf)=RSTAR;
     
-    if approx == 1
-        k(2)=dec_k*[1,k(1)-KSTAR,Z(1)-1,0,0,0,0]';
-        Z(2)=Z(1)^LAMBDAZ*exp(Z_shock);
-        c(2)=dec_c*[1,k(2)-KSTAR,Z(2)-1,0,0,0,0]';
-        l(2)=dec_l*[1,k(2)-KSTAR,Z(2)-1,0,0,0,0]';
-    else
-        k(2)=dec_k*[1,k(1)-KSTAR,Z(1)-1,(k(1)-KSTAR)^2,(k(1)-KSTAR)*(Z(1)-1),(Z(1)-1)^2,sigma_Z^2]';
-        Z(2)=Z(1)^LAMBDAZ*exp(Z_shock);
-        c(2)=dec_c*[1,k(2)-KSTAR,Z(2)-1,(k(2)-KSTAR)^2,(k(2)-KSTAR)*(Z(2)-1),(Z(2)-1)^2,sigma_Z^2]';
-        l(2)=dec_l*[1,k(2)-KSTAR,Z(2)-1,(k(2)-KSTAR)^2,(k(2)-KSTAR)*(Z(2)-1),(Z(2)-1)^2,sigma_Z^2]';
+    for i=2:T_irf
+        k(i)=decision_func(dec_k,[k(i-1) Z(i-1)],[KSTAR ZSTAR],sigma_Z);
+        if i==2
+            Z(i) = Z(i-1)^LAMBDAZ*exp(Z_shock);
+        else
+            Z(i) = Z(i-1)^LAMBDAZ;
+        end
+        c(i)=decision_func(dec_c,[k(i) Z(i)],[KSTAR ZSTAR],sigma_Z);
+        l(i)=decision_func(dec_c,[k(i) Z(i)],[KSTAR ZSTAR],sigma_Z);
     end
-    w(2)=Z(2)/P*(1-ALFA)*k(2)^ALFA*l(2)^(-ALFA);
-    r(2)=Z(2)/P*ALFA*k(2)^(ALFA-1)*l(2)^(1-ALFA)-DELTA;
 
-    for i=3:40
-        k(i)=dec_k*[1,k(i-1)-KSTAR,Z(i-1)-1,(k(i-1)-KSTAR)^2,(k(i-1)-KSTAR)*(Z(i-1)-1),(Z(i-1)-1)^2,sigma_Z^2]';
-        Z(i)=Z(i-1)^LAMBDAZ;
-        c(i)=dec_c*[1,k(i)-KSTAR,Z(i)-1,(k(i)-KSTAR)^2,(k(i)-KSTAR)*(Z(i)-1),(Z(i)-1)^2,sigma_Z^2]';
-        l(i)=dec_l*[1,k(i)-KSTAR,Z(i)-1,(k(i)-KSTAR)^2,(k(i)-KSTAR)*(Z(i)-1),(Z(i)-1)^2,sigma_Z^2]';
-        w(i)=Z(i)/P*(1-ALFA)*k(i)^ALFA*l(i)^(-ALFA);
-        r(i)=Z(i)/P*ALFA*k(i)^(ALFA-1)*l(i)^(1-ALFA)-DELTA;
-    end
-    figure(1)
-    subplot(2,3,1)
-    plot(k)
-    title('Capital ($k$)','Interpreter','latex')
-    subplot(2,3,2)
-    plot(c)
-    title('Consumption ($c$)','Interpreter','latex')
-    subplot(2,3,3)
-    plot(l)
-    title('Labor ($l$)','Interpreter','latex')
-    subplot(2,3,4)
-    plot(Z)
-    title('Productivity shock ($\zeta$)','Interpreter','latex')
-    subplot(2,3,5)
-    plot(r)
-    title('Interest rate ($r$)','Interpreter','latex')
-    subplot(2,3,6)
-    plot(w)
-    title('Wage rate ($w$)','Interpreter','latex')
-    print(['IRF_comp_1_approx_',num2str(approx)],'-djpeg','-r150')
-    close(1)
+    w = w_func(k,l,P,Z,ALFA);
+    r = little_r(k,l,P,Z,ALFA,DELTA);
+
+    % figure(1)
+    % subplot(2,3,1)
+    % plot(k)
+    % title('Capital ($k$)','Interpreter','latex')
+    % subplot(2,3,2)
+    % plot(c)
+    % title('Consumption ($c$)','Interpreter','latex')
+    % subplot(2,3,3)
+    % plot(l)
+    % title('Labor ($l$)','Interpreter','latex')
+    % subplot(2,3,4)
+    % plot(Z)
+    % title('Productivity shock ($\zeta$)','Interpreter','latex')
+    % subplot(2,3,5)
+    % plot(r)
+    % title('Interest rate ($r$)','Interpreter','latex')
+    % subplot(2,3,6)
+    % plot(w)
+    % title('Wage rate ($w$)','Interpreter','latex')
+    % print(['IRF_comp_1_approx_',num2str(approx)],'-djpeg','-r150')
+    % close(1)
 end
 
 rng(13466910,'twister');
@@ -124,8 +125,8 @@ rng(20,'twister');
 rho_P = normrnd(0,sigma_P,[1 T_Psims]);
         
 if simulations
-    fprintf('\n mean(rho_zeta)=%g, estimated=%g\n',0, mean(rho_zeta))
-    fprintf('sigma_Z=%g, estimated=%g\n\n', sigma_Z, std(rho_zeta))
+    % fprintf('\n mean(rho_zeta)=%g, estimated=%g\n',0, mean(rho_zeta))
+    % fprintf('sigma_Z=%g, estimated=%g\n\n', sigma_Z, std(rho_zeta))
     
     % Start from the non-stochastic steady state
     k_sim(1:T)=KSTAR;
@@ -134,35 +135,38 @@ if simulations
     l_sim(1:T)=LSTAR;
     w_sim(1:T)=WSTAR;
     r_sim(1:T)=RSTAR;
+
     for i=2:T
-        k_sim(i)=dec_k*[1,k_sim(i-1)-KSTAR,Z_sim(i-1)-1,(k_sim(i-1)-KSTAR)^2,(k_sim(i-1)-KSTAR)*(Z_sim(i-1)-1),(Z_sim(i-1)-1)^2,sigma_Z^2]';
+        k_sim(i)=decision_func(dec_k,[k(i-1) Z(i-1)],[KSTAR ZSTAR],sigma_Z);
         Z_sim(i)=Z_sim(i-1)^LAMBDAZ*exp(rho_zeta(i));
-        c_sim(i)=dec_c*[1,k_sim(i)-KSTAR,Z_sim(i)-1,(k_sim(i)-KSTAR)^2,(k_sim(i)-KSTAR)*(Z_sim(i)-1),(Z_sim(i)-1)^2,sigma_Z^2]';
-        l_sim(i)=dec_l*[1,k_sim(i)-KSTAR,Z_sim(i)-1,(k_sim(i)-KSTAR)^2,(k_sim(i)-KSTAR)*(Z_sim(i)-1),(Z_sim(i)-1)^2,sigma_Z^2]';
-        w_sim(i)=Z_sim(i)/P*(1-ALFA)*k_sim(i)^ALFA*l_sim(i)^(-ALFA);
-        r_sim(i)=Z_sim(i)/P*ALFA*k_sim(i)^(ALFA-1)*l_sim(i)^(1-ALFA)-DELTA;
+
+        c_sim(i)=decision_func(dec_c,[k(i) Z(i)],[KSTAR ZSTAR],sigma_Z);
+        l_sim(i)=decision_func(dec_c,[k(i) Z(i)],[KSTAR ZSTAR],sigma_Z);       
     end
-    figure(2)
-    subplot(2,3,1)
-    plot(k_sim)
-    title('Capital ($k$)','Interpreter','latex')
-    subplot(2,3,2)
-    plot(c_sim)
-    title('Consumption ($c$)','Interpreter','latex')
-    subplot(2,3,3)
-    plot(l_sim)
-    title('Labor ($l$)','Interpreter','latex')
-    subplot(2,3,4)
-    plot(Z_sim)
-    title('Productivity shock ($\zeta$)','Interpreter','latex')    
-    subplot(2,3,5)
-    plot(r_sim)
-    title('Interest rate ($r$)','Interpreter','latex')
-    subplot(2,3,6)
-    plot(w_sim)
-    title('Wage rate ($w$)','Interpreter','latex')
-    print(['SIM_comp_1_approx_',num2str(approx)],'-djpeg','-r150')
-    close(2)
+
+    w_sim=w_func(k_sim,l_sim,P,Z_sim,ALFA);
+    r_sim=little_r(k_sim,l_sim,P,Z_sim,ALFA,DELTA);
+    % figure(2)
+    % subplot(2,3,1)
+    % plot(k_sim)
+    % title('Capital ($k$)','Interpreter','latex')
+    % subplot(2,3,2)
+    % plot(c_sim)
+    % title('Consumption ($c$)','Interpreter','latex')
+    % subplot(2,3,3)
+    % plot(l_sim)
+    % title('Labor ($l$)','Interpreter','latex')
+    % subplot(2,3,4)
+    % plot(Z_sim)
+    % title('Productivity shock ($\zeta$)','Interpreter','latex')    
+    % subplot(2,3,5)
+    % plot(r_sim)
+    % title('Interest rate ($r$)','Interpreter','latex')
+    % subplot(2,3,6)
+    % plot(w_sim)
+    % title('Wage rate ($w$)','Interpreter','latex')
+    % print(['SIM_comp_1_approx_',num2str(approx)],'-djpeg','-r150')
+    % close(2)
     if stats
         M=mean([k_sim;c_sim;l_sim;Z_sim;r_sim;w_sim],2);
         V=var([k_sim;c_sim;l_sim;Z_sim;r_sim;w_sim],0,2);
@@ -179,8 +183,8 @@ if simulations
         Marg_Util = c_sim.^-1 + l_sim.^ETA;
         
         euler_eqs = subs(f,{sym('cp'),sym('lp')},...
-                {dec_c*[1,(sym('kp')-KSTAR),(sym('Zp')-ZSTAR),(sym('kp')-KSTAR)^2,(sym('kp')-KSTAR)*(sym('Zp')-ZSTAR),(sym('Zp2')-2*sym('Zp')*ZSTAR+ZSTAR^2),sigma_Z^2]',...
-                dec_l*[1,(sym('kp')-KSTAR),(sym('Zp')-ZSTAR),(sym('kp')-KSTAR)^2,(sym('kp')-KSTAR)*(sym('Zp')-ZSTAR),(sym('Zp2')-2*sym('Zp')*ZSTAR+ZSTAR^2),sigma_Z^2]'...
+                {dec_c*[1,(sym('kp')-KSTAR),(sym('Zp')-ZSTAR),(sym('kp')-KSTAR)^2,(sym('kp')-KSTAR)*(sym('Zp')-ZSTAR),(sym('kp')-KSTAR)*(sym('Zp')-ZSTAR),(sym('Zp2')-2*sym('Zp')*ZSTAR+ZSTAR^2),sigma_Z^2]',...
+                dec_l*[1,(sym('kp')-KSTAR),(sym('Zp')-ZSTAR),(sym('kp')-KSTAR)^2,(sym('kp')-KSTAR)*(sym('Zp')-ZSTAR),(sym('kp')-KSTAR)*(sym('Zp')-ZSTAR),(sym('Zp2')-2*sym('Zp')*ZSTAR+ZSTAR^2),sigma_Z^2]'...
                 });
             
         for t = 1:T-1
@@ -200,101 +204,101 @@ end
     
     
     if Loop_P
-        Pl=1.025:0.015:1.4;
+        Pl=1.03:0.01:1.35;
         LP=length(Pl);
         
         k_P(1:LP)=KSTAR*k0_mult;
         Z_P=ones([1 LP])*exp(rho_zeta(1));
         
-        [~,cstart,lstart,rstart,wstart,ystart]=model1_P(Pl(1),approx,k_P(1),Z_P(1),Z_P(1),LAMBDAZ,sigma_Z,BETTA,DELTA,ALFA,ETA,GAMA,SIGM,G,eta,ZSTAR,1);
+        [~,cstart,lstart]=model1_P(Pl(1),approx,k_P(1),Z_P(1),Z_P(1),LAMBDAZ,sigma_Z,BETTA,DELTA,ALFA,ETA,GAMA,SIGM,G,eta,ZSTAR,u,1);
         c_P(1:LP)=cstart;
         l_P(1:LP)=lstart;
-        r_P(1:LP)=rstart;
-        w_P(1:LP)=wstart;
-        y_P(1:LP)=ystart;
+        
       
         for i=2:LP
             Z_P(i)=Z_P(i-1)^LAMBDAZ*exp(rho_zeta(i));
-            [k_P(i),c_P(i),l_P(i),r_P(i),w_P(i),y_P(i)]=model1_P(Pl(i),approx,k_P(i-1),Z_P(i-1),Z_P(i),LAMBDAZ,sigma_Z,BETTA,DELTA,ALFA,ETA,GAMA,SIGM,G,eta,ZSTAR,0);
+            [k_P(i),c_P(i),l_P(i)]=model1_P(Pl(i),approx,k_P(i-1),Z_P(i-1),Z_P(i),LAMBDAZ,sigma_Z,BETTA,DELTA,ALFA,ETA,GAMA,SIGM,G,eta,ZSTAR,u,0);
         end
+
+        w_P=w_func(k_P,l_P,P,Z_P,ALFA);
+        r_P=little_r(k_P,l_P,P,Z_P,ALFA,DELTA);
+        y_P=y_func(k_P,l_P,Z_P,ALFA);
         g_P = [NaN,(G*y_P(2:LP)-y_P(1:LP-1))./y_P(1:LP-1)];
-        figure(3)
-        subplot(2,3,1)
-        plot(Pl,k_P)
-        title('Capital ($k$)','Interpreter','latex')
-        subplot(2,3,2)
-        plot(Pl,c_P)
-        title('Consumption ($c$)','Interpreter','latex')
-        subplot(2,3,3)
-        plot(Pl,l_P)
-        title('Labor ($l$)','Interpreter','latex')
-        subplot(2,3,4)
-        plot(Pl,Z_P)
-        title('Productivity shock ($\zeta$)','Interpreter','latex')
-        subplot(2,3,5)
-        plot(Pl,r_P)
-        title('Interest rate ($r$)','Interpreter','latex')
-        subplot(2,3,6)
-        plot(Pl,w_P)
-        title('Wage rate ($w$)','Interpreter','latex')
-        print(['SIM_P_comp_1_approx_',num2str(approx)],'-djpeg','-r150')
+
+        % figure(3)
+        % subplot(2,3,1)
+        % plot(Pl,k_P)
+        % title('Capital ($k$)','Interpreter','latex')
+        % subplot(2,3,2)
+        % plot(Pl,c_P)
+        % title('Consumption ($c$)','Interpreter','latex')
+        % subplot(2,3,3)
+        % plot(Pl,l_P)
+        % title('Labor ($l$)','Interpreter','latex')
+        % subplot(2,3,4)
+        % plot(Pl,Z_P)
+        % title('Productivity shock ($\zeta$)','Interpreter','latex')
+        % subplot(2,3,5)
+        % plot(Pl,r_P)
+        % title('Interest rate ($r$)','Interpreter','latex')
+        % subplot(2,3,6)
+        % plot(Pl,w_P)
+        % title('Wage rate ($w$)','Interpreter','latex')
+        % print(['SIM_P_comp_1_approx_',num2str(approx)],'-djpeg','-r150')
         %close(3)
     
     end
         
     if Sim_P
-        LP=T_Psims;
+        LP = T_Psims;
         
-        k_P=ones([1 LP])*KSTAR*k0_mult;
-        Z_P=ones([1 LP])*exp(rho_zeta(1));
+        k_P = ones([1 LP]) * KSTAR * k0_mult;
+        Z_P = ones([1 LP]) * exp(rho_zeta(1));
                 
+        PSTAR = G^(1/(1-LAMBDAP));
+        P_P=ones([1 LP]) * G * PSTAR^LAMBDAP * Z_P(1)^(MU) * Z_P(1)^(MU^2) * Z_P(1)^(MU^3) * Z_P(1)^(MU^4) * Z_P(1)^(MU^5)*exp(rho_P(1));
         
-        P_P=ones([1 LP])*P; %G^(1/(1-LAMBDAP));
-        P_P(1) = G * P_P(1)^LAMBDAP * Z_P(1)^(MU) * Z_P(1)^(MU^2) * Z_P(1)^(MU^3) * Z_P(1)^(MU^4) * Z_P(1)^(MU^5)*exp(rho_P(1));
+        [~,cstart,lstart,rstart,wstart,ystart] = model1_P(P_P(1),approx,k_P(1),Z_P(1),Z_P(1),LAMBDAZ,sigma_Z,BETTA,DELTA,ALFA,ETA,GAMA,SIGM,G,eta,ZSTAR,u,1);
+        c_P(1:LP) = cstart;
+        l_P(1:LP) = lstart;
         
-        [~,cstart,lstart,rstart,wstart,ystart]=model1_P(P_P(1),approx,k_P(1),Z_P(1),Z_P(1),LAMBDAZ,sigma_Z,BETTA,DELTA,ALFA,ETA,GAMA,SIGM,G,eta,ZSTAR,1);
-        c_P(1:LP)=cstart;
-        l_P(1:LP)=lstart;
-        r_P(1:LP)=rstart;
-        w_P(1:LP)=wstart;
-        y_P(1:LP)=ystart;
-        
-        
-        %mu_mat = [MU,MU^2,MU^3,MU^4,MU^5];
-      
-        for i=2:LP
+              
+        for i = 2:LP
             Z_P(i)=Z_P(i-1)^LAMBDAZ*exp(rho_zeta(i));
             P_P(i) = G * P_P(i-1)^LAMBDAP * Z_P(i-1)^(MU) * Z_P(max(i-2,1))^(MU^2) * Z_P(max(i-3,1))^(MU^3) * Z_P(max(i-4,1))^(MU^4) * Z_P(max(i-5,1))^(MU^5)*exp(rho_P(i));
-            [k_P(i),c_P(i),l_P(i),r_P(i),w_P(i),y_P(i)]=model1_P(P_P(i),approx,k_P(i-1),Z_P(i-1),Z_P(i),LAMBDAZ,sigma_Z,BETTA,DELTA,ALFA,ETA,GAMA,SIGM,G,eta,ZSTAR,0);
+            [k_P(i),c_P(i),l_P(i)]=model1_P(P_P(i),approx,k_P(i-1),Z_P(i-1),Z_P(i),LAMBDAZ,sigma_Z,BETTA,DELTA,ALFA,ETA,GAMA,SIGM,G,eta,ZSTAR,u,0);
         end
+        w_P = w_func(k_P,l_P,P,Z_P,ALFA);
+        r_P = little_r(k_P,l_P,P,Z_P,ALFA,DELTA);
+        y_P = y_func(k_P,l_P,Z_P,ALFA);
         g_P = [NaN,(G*y_P(2:LP)-y_P(1:LP-1))./y_P(1:LP-1)];
-        figure(3)
-        subplot(2,3,1)
-        plot(k_P)
-        title('Capital ($k$)','Interpreter','latex')
-        subplot(2,3,2)
-        plot(c_P)
-        title('Consumption ($c$)','Interpreter','latex')
-        subplot(2,3,3)
-        plot(l_P)
-        title('Labor ($l$)','Interpreter','latex')
-        subplot(2,3,4)
-        plot(Z_P)
-        title('Productivity shock ($\zeta$)','Interpreter','latex')
-        subplot(2,3,5)
-        plot(r_P)
-        title('Interest rate ($r$)','Interpreter','latex')
-        subplot(2,3,6)
-        plot(P_P)
-        title('Markup ($P$)','Interpreter','latex')
-        print(['SIM_P_comp_5_approx_',num2str(approx)],'-djpeg','-r200')
-%         close(3)
+        % figure(3)
+        % subplot(2,3,1)
+        % plot(k_P)
+        % title('Capital ($k$)','Interpreter','latex')
+        % subplot(2,3,2)
+        % plot(c_P)
+        % title('Consumption ($c$)','Interpreter','latex')
+        % subplot(2,3,3)
+        % plot(l_P)
+        % title('Labor ($l$)','Interpreter','latex')
+        % subplot(2,3,4)
+        % plot(Z_P)
+        % title('Productivity shock ($\zeta$)','Interpreter','latex')
+        % subplot(2,3,5)
+        % plot(r_P)
+        % title('Interest rate ($r$)','Interpreter','latex')
+        % subplot(2,3,6)
+        % plot(P_P)
+        % title('Markup ($P$)','Interpreter','latex')
+        % print(['SIM_P_comp_5_approx_',num2str(approx)],'-djpeg','-r200')
+        % close(3)
     
     end
     
-rgk_mat = [r_P',g_P',k_P',P_P',Z_P'];
+rgwkcl_mat = [r_P',g_P',w_P',k_P',c_P',P_P',Z_P',l_P'];
 if exist('filename','var')   
-    writematrix(rgk_mat,filename,'Sheet',1,'Range',sheetloc)
+    writematrix(rgwkcl_mat,filename,'Sheet',1,'Range',sheetloc)
 end
 
 end
