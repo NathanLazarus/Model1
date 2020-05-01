@@ -23,9 +23,11 @@ class RankWarning(UserWarning):
 
 
 
-periods = 150
+periods = 17
 itercount = 1
 k0 = DM.ones(1)*3
+k0s = np.linspace(0.8,1.6,num=9)
+print(k0s)
 P = 1.25
 nrow_sol_path = 6
 sol_path = np.array([]).reshape(nrow_sol_path,0)
@@ -34,7 +36,7 @@ ncol_reg = 5
 reg_dat = np.array([]).reshape(0,ncol_reg)
 
 
-T = 200
+T = 20
 
 alpha = 0.32
 g = 1.016
@@ -111,7 +113,7 @@ def condition1(consumption,labour,capital):
     return temp
     
 def condition2(consumption,labour,capital,lfunc,cfunc):
-    temp = (logquad(capital[:T],zeta[:T],20,lfunc,cfunc)
+    temp = (logquad(capital[:T],zeta[:T],8,lfunc,cfunc)
          - 1/consumption[:T])
     return temp #length = T
 
@@ -304,42 +306,69 @@ objective = -sum1(consumption)
 
 lower_bound_C = vertcat(DM.ones(T)*0.00001)    # lower bound on the consumption -> not binding anyway
 lower_bound_L = vertcat(DM.zeros(T))
-lower_bound_K = vertcat(k0, 1e-9 * DM.ones(T-1), ssk)
 
 upper_bound_C = vertcat(DM.ones(T)*np.inf)
 upper_bound_L = vertcat(DM.ones(T)*Lmax - 1e-9)
-upper_bound_K = vertcat(k0, DM.ones(T-1)*np.inf, ssk)
 
 
-lb_x = vertcat(lower_bound_C, lower_bound_L, lower_bound_K)
-ub_x = vertcat(upper_bound_C, upper_bound_L, upper_bound_K)
+
 
 
 
 # Define the start point
 x_0 = vertcat(DM.ones(T), DM.ones(T),DM.ones(T+1))
     
-for iteration in range(10):
+for iteration in range(7):
 
     nonlin_con = FOCs(consumption, labour, capital, l_function, c_function)
+
+    c = np.array([]).reshape(0,1)
+    l = np.array([]).reshape(0,1)
+    k = np.array([]).reshape(0,1)
+    z = np.array([]).reshape(0,1)
+
+    for k0 in k0s:
+        lower_bound_K = vertcat(k0, 1e-9 * DM.ones(T-1), ssk)
+        upper_bound_K = vertcat(k0, DM.ones(T-1)*np.inf, ssk)
+        lb_x = vertcat(lower_bound_C, lower_bound_L, lower_bound_K)
+        ub_x = vertcat(upper_bound_C, upper_bound_L, upper_bound_K)
+
+        nlp = {'x':vertcat(consumption,labour,capital), 'f':objective, 'g':nonlin_con}
+        solver = nlpsol('solver', 'ipopt', nlp,{'ipopt.print_level':0})
+        solution = solver(x0=x_0,lbx=lb_x,ubx=ub_x,lbg=vertcat(DM.zeros(3*T)-1e-14),ubg=vertcat(DM.zeros(3*T)+1e-14))
+        sol = solution['x']
+        c_sim, l_sim, k_sim = sol[:T],sol[T:2*T],sol[2*T:]
+        # r = (1/P)*(alpha)*k[:T]**(alpha-1)*l**(1-alpha)-delta
+
+        c = np.concatenate([c,c_sim[:periods]])
+        l = np.concatenate([l,l_sim[:periods]])
+        k = np.concatenate([k,k_sim[:periods]])
+        z = np.concatenate([z,zeta[:periods]])
+
+    # print('*****&*&')
+    # print(np.array([c,l,k,z]))
+
+
+
     
     
-    nlp = {'x':vertcat(consumption,labour,capital), 'f':objective, 'g':nonlin_con}
-    solver = nlpsol('solver', 'ipopt', nlp,{'ipopt.print_level':5})
-    solution = solver(x0=x_0,lbx=lb_x,ubx=ub_x,lbg=vertcat(DM.zeros(3*T)-1e-14),ubg=vertcat(DM.zeros(3*T)+1e-14))
-    sol = solution['x']
-    c, l, k = sol[:T],sol[T:2*T],sol[2*T:]
-    r = (1/P)*(alpha)*k[:T]**(alpha-1)*l**(1-alpha)-delta
+    
+    
+    
+    
+    
+    
+    
     #impliedr = c/c[1:T]
-    sol_path = np.concatenate([sol_path,np.array(vertcat(c[:periods],l[:periods],k[:periods],zeta[:periods],np.ones(periods)*P,r[:periods])).reshape(nrow_sol_path,periods)],axis=1)
-    print(c[100],l[100],k[100],zeta[100])
-    print(c[40],l[40],k[40],zeta[40])
-    print(l[T-5:],c[T-5:],k[T-5:])
-    print(FOCs(c,l,k,l_function,c_function))
-    print('ee')
-    print(mmax(FOCs(c,l,k,l_function,c_function)[:T]),mmax(FOCs(c,l,k,l_function,c_function)[T:2*T-1]),mmax(FOCs(c,l,k,l_function,c_function)[2*T:]))
-    print(sum1(FOCs(c,l,k,l_function,c_function)**10)**(1/10))
-    altl, altc = l[133], c[133]
+    # sol_path = np.concatenate([sol_path,np.array(vertcat(c[:periods],l[:periods],k[:periods],zeta[:periods],np.ones(periods)*P,r[:periods])).reshape(nrow_sol_path,periods)],axis=1)
+    # print(c[100],l[100],k[100],zeta[100])
+    # print(c[40],l[40],k[40],zeta[40])
+    # print(l[T-5:],c[T-5:],k[T-5:])
+    # print(FOCs(c,l,k,l_function,c_function))
+    # print('ee')
+    # print(mmax(FOCs(c,l,k,l_function,c_function)[:T]),mmax(FOCs(c,l,k,l_function,c_function)[T:2*T-1]),mmax(FOCs(c,l,k,l_function,c_function)[2*T:]))
+    # print(sum1(FOCs(c,l,k,l_function,c_function)**10)**(1/10))
+    # altl, altc = l[133], c[133]
 
 
     # deg = 2
@@ -353,14 +382,14 @@ for iteration in range(10):
    
     # np.savetxt("whatshappening"+str(iteration)+".csv", np.concatenate((np.array(k[:periods]),np.array(zeta[:periods]),np.array(c[:periods]))),delimiter=",")
     degree = 5
-    c_coefs = herme2d_fit([k[:periods],zeta[:periods]],c[:periods],degree).T
+    c_coefs = herme2d_fit([k,z],c,degree).T
     if c_coefs.shape[0] > 1:
         c_coefs = c_coefs.T
     
     def c_function(k,z):
         return _vander_nd_flat_SYM((hermevander_casadiSYM,hermevander_casadiSYM),[k,z],[degree,degree]) @ c_coefs.T
 
-    l_coefs = herme2d_fit([k[:periods],zeta[:periods]],l[:periods],degree).T
+    l_coefs = herme2d_fit([k,z],l,degree).T
     if l_coefs.shape[0] > 1:
         l_coefs = l_coefs.T
     vals = _vander_nd_flat((hermevander,hermevander),[k[:periods],zeta[:periods]],[degree,degree])
@@ -382,19 +411,19 @@ for iteration in range(10):
     print(c_coefs)
     print(l_function(DM.ones(5)*ssk,DM.ones(5)))
     print(c_function(DM.ones(2)*ssk,DM.ones(2)))
-    altk = k[133]
+    # altk = k[133]
 T = 2
 zeta = DM.ones(3)
-print(FOCs(c_function(DM.ones(3)*ssk,DM.ones(3)),l_function(DM.ones(3)*ssk,DM.ones(3)),DM.ones(3)*ssk,l_function,c_function))
-print(altk)
-print(altl,altc)
-print(FOCs(c_function(DM.ones(3)*altk,DM.ones(3)),l_function(DM.ones(3)*altk,DM.ones(3)),DM.ones(3)*altk,l_function,c_function))
-print('!!!!!!!!!!!!!!!!!')
-print(ssk)
-print(ssl)
-print(ssc)
-print(c_coefs)
-print(l_coefs)
+# print(FOCs(c_function(DM.ones(3)*ssk,DM.ones(3)),l_function(DM.ones(3)*ssk,DM.ones(3)),DM.ones(3)*ssk,l_function,c_function))
+# print(altk)
+# print(altl,altc)
+# print(FOCs(c_function(DM.ones(3)*altk,DM.ones(3)),l_function(DM.ones(3)*altk,DM.ones(3)),DM.ones(3)*altk,l_function,c_function))
+# print('!!!!!!!!!!!!!!!!!')
+# print(ssk)
+# print(ssl)
+# print(ssc)
+# print(c_coefs)
+# print(l_coefs)
     # print(sol_path)
 
 

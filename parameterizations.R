@@ -5,7 +5,7 @@ library(iterators)
 library(snow)
 library(doSNOW)
 library(readxl)
-tfp = data.table(read_excel('C:/Users/Nathan/Downloads/BCLDatabase_online_v2.3.xlsx',sheet='TFP'))
+tfp = data.table(read_excel('C:/Users/Nathan/Downloads/PerturbationMethods/Model1/BCLDatabase_online_v2.3.xlsx',sheet='TFP'))
 setnames(tfp,1,'Year')
 tfp[,Year:=as.integer(Year)]
 data[tfp,on = 'Year',tfp:=i.USA]
@@ -54,9 +54,13 @@ summary(lm(logPresid ~ loglagPresid + productivity1+productivity2+productivity3+
 summary(lm(logPresid ~ loglagPresid + productivity1+productivity2+productivity3+productivity4+productivity5
            ,data=data[Year<1901.5|Year>1984.5]))
 
+test = nls(logP~a0 + a1*loglagP+a2*productivity1+a2^2*productivity2+a2^3*productivity3+a2^4*productivity4+a2^5*productivity5
+           ,data=data, start = list(a0 = 0, a1 = 0, a2 = 0), trace = T,algorithm = 'port',lower=c(-1000,-1000,-1000), upper=c(1000,1000,1000))
+summary(test)
 
-
-
+test = nls(logP~a0 + a1*loglagP+a2*tfpgrowth+a2^2*productivity1+a2^3*productivity2+a2^4*productivity3+a2^5*productivity4
+           ,data=data, start = list(a0 = 0, a1 = 0, a2 = 0), trace = T,algorithm = 'port',lower=c(-1000,-1000,-1000), upper=c(1000,1000,1000))
+summary(test)
 
 
 

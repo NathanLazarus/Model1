@@ -1,18 +1,18 @@
-function [KSTAR,CSTAR,LSTAR,WSTAR,RSTAR]=model1_ss_numeric(DELTA,ALFA,BETTA,G,P,ETA,GAMA,SIGM,ZSTAR,u)
+function [KSTAR,CSTAR,LSTAR,WSTAR,RSTAR]=model1_ss_numeric(k_guess,c_guess,l_guess,DELTA,ALFA,BETTA,G,P,ETA,GAMA,SIGM,ZSTAR,sym_labor_supply,intertemporal_euler_ss)
 % This program computes the steady state 
 
-sym_labor_supply = laborsupply(u);
-
+ks = casadi.SX.sym('ks');
 cs = casadi.SX.sym('cs');
 ls = casadi.SX.sym('ls');
-ks = casadi.SX.sym('ks');
 
 
-x = vertcat(cs, ls, ks);
-x0 = ones([3 1]);
+x = vertcat(ks, cs, ls);
+x0 = [k_guess c_guess l_guess];
 obj = 1;
 
-nlp = struct('f', obj, 'x', x, 'g', constraint(cs,ls,ks,DELTA,ALFA,BETTA,G,P,ETA,GAMA,SIGM,ZSTAR,sym_labor_supply));
+nlp = struct('f', obj, 'x', x, 'g', constraint(ks,cs,ls,DELTA,ALFA,BETTA,G,P,ETA,GAMA,SIGM,ZSTAR,sym_labor_supply,intertemporal_euler_ss));
+%is it possible to save he structure of this optimization problem and just
+%call it multiple times with different P's?
 
 opts=struct;
 opts.print_time=0;
@@ -23,18 +23,18 @@ sol = solver('x0', x0,'lbg', -1e-8, 'ubg', 1e-8);
 
 solution = full(sol.x(:,1));
 
-CSTAR = solution(1);
-LSTAR = solution(2);
-KSTAR = solution(3);
+KSTAR = solution(1);
+CSTAR = solution(2);
+LSTAR = solution(3);
 WSTAR = w_func(KSTAR,LSTAR,P,ZSTAR,ALFA);
 RSTAR = little_r(KSTAR,LSTAR,P,ZSTAR,ALFA,DELTA);
 
 end
 
-function [constraintval] =  constraint(c,l,k,DELTA,ALFA,BETTA,G,P,ETA,GAMA,SIGM,ZSTAR,sym_labor_supply)
+function [constraintval] =  constraint(k,c,l,DELTA,ALFA,BETTA,G,P,ETA,GAMA,SIGM,ZSTAR,sym_labor_supply,intertemporal_euler_ss)
  constraintval = ...
  	[c + G*k - (1-DELTA) * k - ZSTAR * k^ALFA * l^(1-ALFA);...
-     1 - (BETTA/G) * big_R(k,l,P,ZSTAR,ALFA,DELTA);...
+     1 - BETTA * eval(intertemporal_euler_ss) * big_R(k,l,P,ZSTAR,ALFA,DELTA);...
      eval(sym_labor_supply) + w_func(k,l,P,ZSTAR,ALFA)];
 end
 
