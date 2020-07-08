@@ -20,7 +20,7 @@ opts.print_time=0;
 opts.ipopt.print_level=0;
 solver = casadi.nlpsol('solver', 'ipopt', nlp, opts);
 
-sol = solver('x0', x0, 'lbg', -1e-8, 'ubg', 1e-8);
+sol = solver('x0', x0, 'lbg', -1e-9, 'ubg', 1e-9);
 
 solution = full(sol.x(:,1));
 

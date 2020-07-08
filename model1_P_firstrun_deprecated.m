@@ -1,6 +1,6 @@
 % Calls: model1.m num_eval.m  model1_ss_numeric.m gx_hx.m gxx_hxx.m gss_hss.m
 
-function [k_sim_plus,c_sim,l_sim,riskless_r_sim,riskless_r_sim_alt,E_l_sim,E_c_sim]=model1_P(P,approx,k_sim,Z_sim,LAMBDAZ,sigma_Z,BETTA,DELTA,ALFA,ETA,GAMA,SIGM,G,eta,ZSTAR,k_guess,c_guess,l_guess,...
+function [k_sim_plus,c_sim,l_sim,KSTAR,LSTAR,CSTAR,stable_dkplusdk]=model1_P_firstrun(P,approx,k_sim,Z_sim,LAMBDAZ,sigma_Z,BETTA,DELTA,ALFA,ETA,GAMA,SIGM,G,eta,ZSTAR,k_guess,c_guess,l_guess,...
     sym_labor_supply,intertemporal_euler_ss,intertemporal_euler_sym,fx,fxp,fy,fyp,fypyp,fypy,fypxp,fypx,fyyp,fyy,fyxp,fyx,fxpyp,fxpy,fxpxp,fxpx,fxyp,fxy,fxxp,fxx,f,nextshock)
 
 [KSTAR,CSTAR,LSTAR,WSTAR,RSTAR]=model1_ss_numeric(k_guess,c_guess,l_guess,DELTA,ALFA,BETTA,G,P,ETA,GAMA,SIGM,ZSTAR,sym_labor_supply,intertemporal_euler_ss);
@@ -13,6 +13,7 @@ num_eval
 
 %First-order approximation
 [gx,hx] = gx_hx(nfy,nfx,nfyp,nfxp);
+stable_dkplusdk = hx(1,1);
 
 flatten = @(A) A(:);
 if approx == 2
@@ -27,11 +28,9 @@ else
     dec_k=[KSTAR,hx(1,:),0,0,0,0,0]; 
     dec_l=[LSTAR,gx(1,:),0,0,0,0,0];
     dec_c=[CSTAR,gx(2,:),0,0,0,0,0];   
+    dec_riskless_r=[RSTAR,gx(3,:),0,0,0,0,0];
 end
 
-if k_sim>1.394
-    dec_l
-end
 k_sim_plus=decision_func(dec_k,[k_sim Z_sim],[KSTAR ZSTAR],sigma_Z);
     
 c_sim=decision_func(dec_c,[k_sim Z_sim],[KSTAR ZSTAR],sigma_Z);
