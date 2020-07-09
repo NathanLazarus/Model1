@@ -1,4 +1,4 @@
-function riskless_r = riskless_r2(k,Z,c_input,l_input,dec_c,dec_l,LAMBDAZ,KSTAR,ZSTAR,sigma_Z,BETTA,G,GAMA,ETA,SIGM,intertemporal_euler_sym)
+function riskless_r = sophisticated_riskless_r_model2(k,Z,c_input,l_input,dec_c,dec_l,LAMBDAZ,KSTAR,ZSTAR,sigma_Z,sigma_P,BETTA,G,GAMA,ETA,SIGM,intertemporal_euler_sym,DELTA,ALFA,dec_k,nextshock)
 
 quadpoints = [-0.381186990207322116,...
 0.3811869902073221168,...
@@ -20,13 +20,14 @@ quadweights = [0.661147012558241291,...
 
 %points and weights from https://github.com/sivaramambikasaran/Quadrature/blob/master/Gauss_Hermite/weights/weights8
    
-quad = 0;
 c = c_input; %used in eval(intertemporal_euler_sym)
 l = l_input; %used in the multiplicative utility case (l_plus and l don't cancel)
 
+quad = 0;
 for i=1:length(quadpoints)
-    cp = decision_func(dec_c,[k Z^LAMBDAZ*exp(sqrt(2)*quadpoints(i)).^sigma_Z],[KSTAR ZSTAR],sigma_Z);
-    lp = decision_func(dec_l,[k Z^LAMBDAZ*exp(sqrt(2)*quadpoints(i)).^sigma_Z],[KSTAR ZSTAR],sigma_Z);
+    cp = decision_func_to_use(dec_c,[k Z^LAMBDAZ*exp(sqrt(2)*quadpoints(i)).^sigma_Z],[KSTAR ZSTAR],sigma_Z,sigma_P);
+    lp = decision_func_to_use(dec_l,[k Z^LAMBDAZ*exp(sqrt(2)*quadpoints(i)).^sigma_Z],[KSTAR ZSTAR],sigma_Z,sigma_P);
     quad = quad + quadweights(i)*(1/sqrt(pi))*(1/(BETTA*eval(intertemporal_euler_sym)));
 end
+
 riskless_r = quad - 1;

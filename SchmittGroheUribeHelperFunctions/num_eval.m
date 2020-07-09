@@ -25,7 +25,7 @@ if approx==1
 %If only a first-order approximation is desired, set all second derivatives equal to zero
 nfypyp=0; nfypy=0; nfypxp=0; nfypx=0; nfyyp=0; nfyy=0; nfyxp=0; nfyx=0; nfxpyp=0; nfxpy=0; nfxpxp=0; nfxpx=0; nfxyp=0; nfxy=0; nfxxp=0; nfxx=0;
    
-   else
+else
 
 nfypyp=zeros(size(fypyp));
 nfypyp(:)=eval(fypyp(:));
