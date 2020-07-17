@@ -1,346 +1,187 @@
 % model1_run.M
 % Calls: model1.m num_eval.m  model1_ss_numeric.m gx_hx.m gxx_hxx.m gss_hss.m
-function [rgwkcl_mat] = model1_run(DELTA,ALFA,BETTA,G,SIGM,LAMBDAP,LAMBDAZ,sigma_Z,sigma_P,MU,FRISCHELAS,STEADYSTATEL,T,shock,k0_mult,MultiplicativeU,Loop_P,startopposite)
+function [exogenous_var_results,rgwkcl_mat] = model1_run(DELTA,ALFA,BETTA,G,SIGM,LAMBDAP,LAMBDAZ,...
+    sigma_Z,sigma_P,MU,FRISCHELAS,STEADYSTATEL,T,shock,k0_mult,MultiplicativeU,...
+    startopposite,regimechanges,regime_change_frequency,randomseq,order)
 
-defaults = [0.08,0.32,0.98,1.014,0.9,0.95,0.9,0.0072,0.005,0.3,0.5,0.3,50,55,1,0,1,1];
-var={'DELTA','ALFA','BETTA','G','SIGM',...
-    'LAMBDAP','LAMBDAZ','sigma_Z','sigma_P','MU',...
-    'FRISCHELAS','STEADYSTATEL','T','shock','k0_mult',...
-    'MultiplicativeU','Loop_P','startopposite'};
+defaults = {0.08,0.32,0.98,1.014,...
+    0.9,0.95,0.92,0.017,...
+    0.03,0.086,0.5,0.3,...
+    10,"historical",1,1,...
+    1,1,50,...
+    2,4};
+
+var = ["DELTA","ALFA","BETTA","G",...
+    "SIGM","LAMBDAP","LAMBDAZ","sigma_Z",...
+    "sigma_P","MU","FRISCHELAS","STEADYSTATEL",...
+    "T","shock","k0_mult","MultiplicativeU",...
+    "startopposite","regimechanges","regime_change_frequency",...
+    "randomseq","order"];
 
 for i = 1:length(defaults)
-    if ~exist(var{i},'var')
-        eval(sprintf('%s = %g;',var{i},defaults(i)))
+    if ~exist(var{i},"var")
+        if class(defaults{i}) == "string"
+            eval(sprintf('%s = "%s";',var(i),defaults{i}))
+        else
+            eval(sprintf("%s = %g;",var(i),defaults{i}))
+        end
     end
 end
-shock
+
+folder = fileparts(which(mfilename));
+addpath(join([folder,'\','MyHelperFunctions'],""))
+addpath(join([folder,'\','SchmittGroheUribeHelperFunctions'],""))
 
 if MultiplicativeU
     u = multiplicative_u;
+    utility_function_str = "Multiplicative";
 else
     u = additive_u;
+    utility_function_str = "Additive";
 end
 
-[fx,fxp,fy,fyp,fypyp,fypy,fypxp,fypx,fyyp,fyy,fyxp,fyx,fxpyp,fxpy,fxpxp,fxpx,fxyp,fxy,fxxp,fxx,f] = model1(u);
 
-P       = G^(1/(1-LAMBDAP));
-Loop_P_Path = 1.03:0.01:1.35;
+ZSTAR   = 1; %steady-state value of technology shock 
+PSTAR   = G^(1/(1-LAMBDAP));
 eta     = [0 1]'; %Matrix defining driving force
-T_Psims = T;
+[fx,fxp,fy,fyp,fypyp,fypy,fypxp,fypx,fyyp,fyy,fyxp,fyx,fxpyp,fxpy,fxpxp,fxpx,fxyp,fxy,fxxp,fxx,f] = model1(u);
+[fx_no_stock,fxp_no_stock,fy_no_stock,fyp_no_stock,~,~,~,~,~,~,~,~,~,~,~,~,~,~,~,~,f_no_stock] = model1_no_stock(u);
 
-%lower the bounds on the casadi lbg's
 
-% impulse response functions setup
-irf=0;
-Z_shock=sigma_Z;
-T_irf = T;
+LAMBDAPhigh = 0.95;
+LAMBDAPlow = 0.8;
+if LAMBDAP == LAMBDAPhigh
+    LAMBDAPopposite = LAMBDAPlow;
+end
+if LAMBDAP == LAMBDAPlow
+    LAMBDAPopposite = LAMBDAPhigh;
+end
+value_of_P_where_LSTAR_equals_STEADYSTATEL = G^(1/(1-LAMBDAPlow));
 
-% simulations setup
-simulations=0;
-% T=100;
-% T_Psims = 40;
-stats=0;
-Euler_Error = 0;
-Sim_P=1;
-
-ZSTAR = 1; %steady-state value of technology shock 
-
-addpath('C:/Users/Nathan/Downloads/casadi-windows-matlabR2016a-v3.5.1')
 import casadi.*
 
 sym_labor_supply = laborsupply(u);
 intertemporal_euler_ss = dupdcp_over_dudc(u,1);
-intertemporal_euler_sym = dupdcp_over_dudc(u,0);
 
-[KSTAR,CSTAR,LSTAR,WSTAR,RSTAR,GAMA,ETA]=model1_ss_numericsetGAMAandETA(DELTA,ALFA,BETTA,G,P,FRISCHELAS,STEADYSTATEL,SIGM,ZSTAR,sym_labor_supply,intertemporal_euler_ss,u)
-PSTAR = G^(1/(1-LAMBDAP));
+[KSTAR,~,~,~,~,GAMA,ETA]=model1_ss_numericsetGAMAandETA(DELTA,ALFA,BETTA,G,value_of_P_where_LSTAR_equals_STEADYSTATEL,FRISCHELAS,STEADYSTATEL,SIGM,ZSTAR,sym_labor_supply,intertemporal_euler_ss,u);
+[~,~,~,~,~,~,multiplicativeETA]=model1_ss_numericsetGAMAandETA(DELTA,ALFA,BETTA,G,value_of_P_where_LSTAR_equals_STEADYSTATEL,FRISCHELAS,STEADYSTATEL,SIGM,ZSTAR,laborsupply(multiplicative_u),dupdcp_over_dudc(multiplicative_u,1),multiplicative_u);
+[~,~,~,~,~,~,additiveETA]=model1_ss_numericsetGAMAandETA(DELTA,ALFA,BETTA,G,value_of_P_where_LSTAR_equals_STEADYSTATEL,FRISCHELAS,STEADYSTATEL,SIGM,ZSTAR,laborsupply(additive_u),dupdcp_over_dudc(additive_u,1),additive_u);
+
 if startopposite
-    if LAMBDAP == 0.95
-    Popposite = G^(1/(1-0.77));
-    end
-    if LAMBDAP == 0.77
-    Popposite = G^(1/(1-0.95));
-    end
-    KSTARopposite = model1_ss_numeric(KSTAR,CSTAR,LSTAR,DELTA,ALFA,BETTA,G,Popposite,ETA,GAMA,SIGM,ZSTAR,sym_labor_supply,intertemporal_euler_ss);
+    PSTARopposite = G^(1/(1-LAMBDAPopposite));
+    [KSTARopposite,CSTARopposite,LSTARopposite,WSTARopposite,RSTARopposite]=model1_ss_numeric(1,0.3,0.3,DELTA,ALFA,BETTA,G,PSTARopposite,ETA,GAMA,SIGM,ZSTAR,sym_labor_supply,intertemporal_euler_ss);
+%     stockSTARopposite = G*((PSTARopposite-1)/PSTARopposite)*y_func(KSTARopposite,LSTARopposite,ZSTAR,ALFA)/((1+RSTARopposite) - G);
     k0_mult = KSTARopposite/KSTAR;
 end
-    
-k=KSTAR; c=CSTAR; l=LSTAR; Z=ZSTAR;
-kp=k; cp=c; lp=l; Zp=Z; riskless_r_ = RSTAR;
 
-%Order of approximation desired 
-approx = 2;
-
-%Obtain numerical derivatives of f
-num_eval
-
-%First-order approximation
-[gx,hx] = gx_hx(nfy,nfx,nfyp,nfxp);
-
-flatten = @(A) A(:);
-
-if approx == 2
-    %Second-order approximation
-    [gxx,hxx] = gxx_hxx(nfx,nfxp,nfy,nfyp,nfypyp,nfypy,nfypxp,nfypx,nfyyp,nfyy,nfyxp,nfyx,nfxpyp,nfxpy,nfxpxp,nfxpx,nfxyp,nfxy,nfxxp,nfxx,hx,gx)
-
-    [gss,hss] = gss_hss(nfx,nfxp,nfy,nfyp,nfypyp,nfypy,nfypxp,nfypx,nfyyp,nfyy,nfyxp,nfyx,nfxpyp,nfxpy,nfxpxp,nfxpx,nfxyp,nfxy,nfxxp,nfxx,hx,gx,gxx,eta)
-    dec_k=[KSTAR,hx(1,:),1/2*flatten(hxx(1,:,:))',1/2*hss(1)];
-    dec_l=[LSTAR,gx(1,:),1/2*flatten(gxx(1,:,:))',1/2*gss(1)];
-    dec_c=[CSTAR,gx(2,:),1/2*flatten(gxx(2,:,:))',1/2*gss(2)];
+if string(shock) == "historical_postwar_trend"
+    tfpfile = "C:/Users/Nathan/Downloads/PerturbationMethods/Parameterizations/TFPshocks_relative_to_postwar_trend.csv";
+    shock = "historical";
+elseif string(shock) == "historical_endogenous_P_postwar_trend"
+    tfpfile = "C:/Users/Nathan/Downloads/PerturbationMethods/Parameterizations/TFPshocks_relative_to_postwar_trend.csv";
+    shock = "historical_endogenous_P";
 else
-    dec_k=[KSTAR,hx(1,:),0,0,0,0,0]; 
-    dec_l=[LSTAR,gx(1,:),0,0,0,0,0];
-    dec_c=[CSTAR,gx(2,:),0,0,0,0,0];
+    tfpfile = "C:/Users/Nathan/Downloads/PerturbationMethods/Parameterizations/TFPshocks.csv";
 end
 
-if irf
-    k(1:T_irf)=KSTAR;
-    c(1:T_irf)=CSTAR;
-    Z(1:T_irf)=ZSTAR;
-    l(1:T_irf)=LSTAR;
-    w(1:T_irf)=WSTAR;
-    r(1:T_irf)=RSTAR;
-    
-    for i=2:T_irf
-        k(i)=decision_func(dec_k,[k(i-1) Z(i-1)],[KSTAR ZSTAR],sigma_Z);
-        if i==2
-            Z(i) = Z(i-1)^LAMBDAZ*exp(Z_shock);
-        else
-            Z(i) = Z(i-1)^LAMBDAZ;
-        end
-        c(i)=decision_func(dec_c,[k(i) Z(i)],[KSTAR ZSTAR],sigma_Z);
-        l(i)=decision_func(dec_l,[k(i) Z(i)],[KSTAR ZSTAR],sigma_Z);
-    end
-
-    w = w_func(k,l,P,Z,ALFA);
-    r = little_r(k,l,P,Z,ALFA,DELTA);
-
-    % figure(1)
-    % subplot(2,3,1)
-    % plot(k)
-    % title('Capital ($k$)','Interpreter','latex')
-    % subplot(2,3,2)
-    % plot(c)
-    % title('Consumption ($c$)','Interpreter','latex')
-    % subplot(2,3,3)
-    % plot(l)
-    % title('Labor ($l$)','Interpreter','latex')
-    % subplot(2,3,4)
-    % plot(Z)
-    % title('Productivity shock ($\zeta$)','Interpreter','latex')
-    % subplot(2,3,5)
-    % plot(r)
-    % title('Interest rate ($r$)','Interpreter','latex')
-    % subplot(2,3,6)
-    % plot(w)
-    % title('Wage rate ($w$)','Interpreter','latex')
-    % print(['IRF_comp_1_approx_',num2str(approx)],'-djpeg','-r150')
-    % close(1)
+rng(13466910+randomseq,'twister');
+rho_Z = normrnd(0,sigma_Z,[1 T]);
+if ~(string(shock) == "none"||string(shock) == "historical"|| string(shock) == "historical_endogenous_P")
+    rho_Z(1:5)=shock;
 end
+rng(123140+randomseq,"twister");
+rho_P = normrnd(0,sigma_P,[1 T]);
 
-rng(13466910,'twister');
-rho_zeta = normrnd(0,sigma_Z,[1 max(T,T_Psims)]); %should be max(T,T_Psims,LP once I add the loop start and stop as parameters)
-rho_zeta(1:5)=shock;
-positiveshock = 0.015;
-if shock == 99
-    realTFP = readmatrix('TFPshocks.csv');
-    %realTFP(realTFP(:,1)>(max(realTFP(:,1))-33),:)
-    rho_zeta(1:33) = realTFP(realTFP(:,1)>1984.5&realTFP(:,1)<2017.5,2);
-    real_rho_zeta_back_to_1980(1:33+4) = realTFP(realTFP(:,1)>1980.5&realTFP(:,1)<2017.5,2);
-end
-if shock == 88
-    realTFP = readmatrix('TFPshocks.csv');
-    rho_zeta(1:33+4) = realTFP(realTFP(:,1)>1980.5&realTFP(:,1)<2017.5,2);
-    Loop_P = 0;
-    T_Psims = 33+4;
-end
-if shock == 77
-    realTFP = readmatrix('TFPshocks.csv');
-    rho_zeta(1:33) = realTFP(realTFP(:,1)>1984.5&realTFP(:,1)<2017.5,2);
-    real_rho_zeta_back_to_1980(1:33+4) = realTFP(realTFP(:,1)>1980.5&realTFP(:,1)<2017.5,2);
-    realProfits = readmatrix('ProfitShare.csv');
-    Loop_P_Path = (1./(1-realProfits(realProfits(:,1)>1984.5&realProfits(:,1)<2017.5,2)))';
-end
-if shock == 66
-    rho_zeta(1:5) = positiveshock;
-    realProfits = readmatrix('ProfitShare.csv');
-    Loop_P_Path = (1./(1-realProfits(realProfits(:,1)>1984.5&realProfits(:,1)<2017.5,2)))';
-end
-if shock == 55
-    rho_zeta(1:5) = positiveshock;
-    Loop_P = 0;
-    T_Psims = 33;
-end
-
-rng(20,'twister');
-rho_P = normrnd(0,sigma_P,[1 T_Psims]);
-        
-if simulations
-    % fprintf('\n mean(rho_zeta)=%g, estimated=%g\n',0, mean(rho_zeta))
-    % fprintf('sigma_Z=%g, estimated=%g\n\n', sigma_Z, std(rho_zeta))
-    
-    % Start from the non-stochastic steady state
-    k_sim(1:T)=KSTAR;
-    c_sim(1:T)=CSTAR;
-    Z_sim(1:T)=ZSTAR;
-    l_sim(1:T)=LSTAR;
-    w_sim(1:T)=WSTAR;
-    r_sim(1:T)=RSTAR;
-
-    for i=2:T
-        k_sim(i)=decision_func(dec_k,[k_sim(i-1) Z_sim(i-1)],[KSTAR ZSTAR],sigma_Z);
-        Z_sim(i)=Z_sim(i-1)^LAMBDAZ*exp(rho_zeta(i));
-
-        c_sim(i)=decision_func(dec_c,[k_sim(i) Z_sim(i)],[KSTAR ZSTAR],sigma_Z);
-        l_sim(i)=decision_func(dec_c,[k_sim(i) Z_sim(i)],[KSTAR ZSTAR],sigma_Z);       
-    end
-
-    w_sim=w_func(k_sim,l_sim,P,Z_sim,ALFA);
-    r_sim=little_r(k_sim,l_sim,P,Z_sim,ALFA,DELTA);
-    % figure(2)
-    % subplot(2,3,1)
-    % plot(k_sim)
-    % title('Capital ($k$)','Interpreter','latex')
-    % subplot(2,3,2)
-    % plot(c_sim)
-    % title('Consumption ($c$)','Interpreter','latex')
-    % subplot(2,3,3)
-    % plot(l_sim)
-    % title('Labor ($l$)','Interpreter','latex')
-    % subplot(2,3,4)
-    % plot(Z_sim)
-    % title('Productivity shock ($\zeta$)','Interpreter','latex')    
-    % subplot(2,3,5)
-    % plot(r_sim)
-    % title('Interest rate ($r$)','Interpreter','latex')
-    % subplot(2,3,6)
-    % plot(w_sim)
-    % title('Wage rate ($w$)','Interpreter','latex')
-    % print(['SIM_comp_1_approx_',num2str(approx)],'-djpeg','-r150')
-    % close(2)
-    if stats
-        M=mean([k_sim;c_sim;l_sim;Z_sim;r_sim;w_sim],2);
-        V=var([k_sim;c_sim;l_sim;Z_sim;r_sim;w_sim],0,2);
-        Max=max([k_sim;c_sim;l_sim;Z_sim;r_sim;w_sim],[],2);
-        Min=min([k_sim;c_sim;l_sim;Z_sim;r_sim;w_sim],[],2);
-        fprintf('\n mean(k)=%g, mean(c)=%g, mean(l)=%g, mean(Z)=%g, mean(r)=%g, mean(w)=%g\n',M)
-        fprintf('\n var(k)=%g, var(c)=%g, var(l)=%g, var(Z)=%g, var(r)=%g, var(w)=%g\n',V)
-        fprintf('\n max(k)=%g, max(c)=%g, max(l)=%g, max(Z)=%g, max(r)=%g, max(w)=%g\n',Max)
-        fprintf('\n min(k)=%g, min(c)=%g, min(l)=%g, min(Z)=%g, min(r)=%g, min(w)=%g\n',Min)
-    end
-    
-    if Euler_Error
-        error = ones([T-1 5]);
-        Marg_Util = c_sim.^-1 + l_sim.^ETA;
-        
-        euler_eqs = subs(f,{sym('cp'),sym('lp')},...
-                {dec_c*[1,(sym('kp')-KSTAR),(sym('Zp')-ZSTAR),(sym('kp')-KSTAR)^2,(sym('kp')-KSTAR)*(sym('Zp')-ZSTAR),(sym('kp')-KSTAR)*(sym('Zp')-ZSTAR),(sym('Zp2')-2*sym('Zp')*ZSTAR+ZSTAR^2),sigma_Z^2]',...
-                dec_l*[1,(sym('kp')-KSTAR),(sym('Zp')-ZSTAR),(sym('kp')-KSTAR)^2,(sym('kp')-KSTAR)*(sym('Zp')-ZSTAR),(sym('kp')-KSTAR)*(sym('Zp')-ZSTAR),(sym('Zp2')-2*sym('Zp')*ZSTAR+ZSTAR^2),sigma_Z^2]'...
-                });
-            
-        for t = 1:T-1
-            euler_eqs_t = subs(euler_eqs,{sym('kp'),sym('lp'),sym('k'),sym('Z'),sym('l'),sym('c')},...
-                {k_sim(t+1),l_sim(t+1),k_sim(t),Z_sim(t),l_sim(t),c_sim(t)});
-            error(t,:) = eval(subs(euler_eqs_t,{sym('Zp'),sym('Zp2')},{Z_sim(t)^LAMBDAZ*exp(sigma_Z^2/2),(Z_sim(t)^LAMBDAZ)^2*exp(2*sigma_Z^2)}))';
-        end
-        
-        unit_free_error = error./Marg_Util(1:T-1)';
-        
-        mean_relative_error = mean(log10(abs(unit_free_error)+1e-15));
-        fprintf('\nOrder of magnitude of the mean error for equation 1: %g, equation 2: %g, equation 3: %g\n\n', mean_relative_error(1),mean_relative_error(2),mean_relative_error(3))
-        max_relative_error = max(log10(abs(unit_free_error)+1e-15));
-        fprintf('\nOrder of magnitude of the max error for equation 1: %g, equation 2: %g, equation 3: %g\n\n', max_relative_error(1),max_relative_error(2),max_relative_error(3))
-    end
-end
-
-
-    if Sim_P
-        if Loop_P
-            P_P=Loop_P_Path;
-            LP=length(P_P);
-            k_P = ones([1 LP]) * KSTAR * k0_mult;
-            Z_P = ones([1 LP]) * ZSTAR;
-            if shock == 99 || shock == 77
-                Z_P_back_to_1980 = ones([1 4]) * ZSTAR;
-                for i = 1:4
-                    Z_P_back_to_1980(i)=Z_P_back_to_1980(max(i-1,1))^LAMBDAZ*exp(real_rho_zeta_back_to_1980(i));
+if (string(shock) == "historical" || string(shock) == "historical_endogenous_P")
+    T = 37;
+    realTFPshocks = readmatrix(tfpfile);
+    rho_Z = zeros([1 T]) + realTFPshocks(realTFPshocks(:,1)>1980.5&realTFPshocks(:,1)<2017.5,2);
+    if string(shock) == "historical"
+        realProfits = readmatrix("C:/Users/Nathan/Downloads/PerturbationMethods/Parameterizations/ProfitShare.csv");
+        True_P_Path = (1./(1-realProfits(realProfits(:,1)>1980.5&realProfits(:,1)<2017.5,2)))';
+        historical_Z_path = zeros([1 T]) + ZSTAR;
+        rho_P = NaN([1 T]);
+        for i=1:T
+            historical_Z_path(i)=historical_Z_path(max(i-1,1))^LAMBDAZ*exp(rho_Z(i));
+            if i == 1
+                if startopposite
+                    historical_P_implied_by_Z = P_func(G,PSTARopposite,LAMBDAP,historical_Z_path(i),historical_Z_path(max(i-1,1)),historical_Z_path(max(i-2,1)),historical_Z_path(max(i-3,1)),historical_Z_path(max(i-4,1)),MU,0);
+                else
+                    historical_P_implied_by_Z = P_func(G,PSTAR,LAMBDAP,historical_Z_path(i),historical_Z_path(max(i-1,1)),historical_Z_path(max(i-2,1)),historical_Z_path(max(i-3,1)),historical_Z_path(max(i-4,1)),MU,0);
                 end
-                Z_P = ones([1 LP]) * Z_P_back_to_1980(4);
+            else
+                historical_P_implied_by_Z = P_func(G,True_P_Path(max(i-1,1)),LAMBDAP,historical_Z_path(i),historical_Z_path(max(i-1,1)),historical_Z_path(max(i-2,1)),historical_Z_path(max(i-3,1)),historical_Z_path(max(i-4,1)),MU,0);
             end
-        else
-            LP = T_Psims;
-            k_P = ones([1 LP]) * KSTAR * k0_mult;
-            Z_P = ones([1 LP]) * ZSTAR;
-            % this is from when the loop went from 2:LP instead of 1:LP, so P(1) needed to be P(1) and not PSTAR, I think P_P=ones([1 LP]) * P_func(G,PSTAR,LAMBDAP,Z_P(1),Z_P(1),Z_P(1),Z_P(1),Z_P(1),MU,rho_P(1));
-            P_P=ones([1 LP])*PSTAR;
-            if startopposite
-                P_P = ones([1 LP])*Popposite;
-            end
+            rho_P(i) = log(True_P_Path(i)/historical_P_implied_by_Z);
         end
-        
-        c_P(1:LP) = ones([1 LP]);
-        l_P(1:LP) = ones([1 LP]);
-        E_l(1:LP) = ones([1 LP]);
-        E_c(1:LP) = ones([1 LP]);
-        riskless_r_P(1:LP) = ones([1 LP]);
-        riskless_r_alt(1:LP) = ones([1 LP]);
-              
-        for i = 1:LP
-            Z_P(i)=Z_P(max(i-1,1))^LAMBDAZ*exp(rho_zeta(i));
-            if ~Loop_P
-                P_P(i) = P_func(G,P_P(max(i-1,1)),LAMBDAP,Z_P(i),Z_P(max(i-1,1)),Z_P(max(i-2,1)),Z_P(max(i-3,1)),Z_P(max(i-4,1)),MU,rho_P(i));
-            end
-            if i == 4 && shock == 88
-                P_P(i) = Popposite;
-            end
-            [k_P(i+1),c_P(i),l_P(i),riskless_r_P(i),riskless_r_alt(i),E_l(i),E_c(i)]=model1_P(P_P(i),approx,k_P(i),Z_P(i),LAMBDAZ,sigma_Z,BETTA,DELTA,ALFA,ETA,GAMA,SIGM,G,eta,ZSTAR,KSTAR,CSTAR,LSTAR,...
-                sym_labor_supply,intertemporal_euler_ss,intertemporal_euler_sym,fx,fxp,fy,fyp,fypyp,fypy,fypxp,fypx,fyyp,fyy,fyxp,fyx,fxpyp,fxpy,fxpxp,fxpx,fxyp,fxy,fxxp,fxx,f,rho_zeta(min(i+1,T)));
-            if i == 4 && shock == 88
-                k_P(i+1) = KSTAR * k0_mult;
-            end
-        end
-        k_P = k_P(1:LP);
-        w_P = w_func(k_P,l_P,P_P,Z_P,ALFA);
-        E_Z = Z_P;
-        for i = 2:LP
-            E_Z(i) = Z_P(i-1)^LAMBDAZ*exp(sigma_Z^2/2);
-        end
-        r_P = big_R(k_P,l_P,P_P,Z_P,ALFA,DELTA)-1;
-        y_P = y_func(k_P,l_P,Z_P,ALFA);
-        g_P = [NaN,(G*y_P(2:LP)-y_P(1:LP-1))./y_P(1:LP-1)];
-        another_riskless = 1./(BETTA*(c_P./(G*E_c)).^SIGM)-1;
-        % figure(3)
-        % subplot(2,3,1)
-        % plot(k_P)
-        % title('Capital ($k$)','Interpreter','latex')
-        % subplot(2,3,2)
-        % plot(c_P)
-        % title('Consumption ($c$)','Interpreter','latex')
-        % subplot(2,3,3)
-        % plot(l_P)
-        % title('Labor ($l$)','Interpreter','latex')
-        % subplot(2,3,4)
-        % plot(Z_P)
-        % title('Productivity shock ($\zeta$)','Interpreter','latex')
-        % subplot(2,3,5)
-        % plot(r_P)
-        % title('Interest rate ($r$)','Interpreter','latex')
-        % subplot(2,3,6)
-        % plot(P_P)
-        % title('Markup ($P$)','Interpreter','latex')
-        % print(['SIM_P_comp_5_approx_',num2str(approx)],'-djpeg','-r200')
-        % close(3)
-    
     end
+    if string(shock) == "historical_endogenous_P"
+        rho_P = zeros([1 T]);
+    end
+end
+  
+try
+    MathematicaOutputs = readmatrix("C:/Users/Nathan/Downloads/PerturbationMethods/Model1/coefsbyP.csv");
+catch
+    MathematicaOutputs = [];
+end
+
+Z_sim = zeros([1 T]) + ZSTAR;
+P_sim = zeros([1 T]) + PSTAR;
+k_sim = zeros([1 T+1]) + KSTAR;
+if startopposite
+    P_sim = zeros([1 T]) + PSTARopposite;
+    k_sim = zeros([1 T+1]) + KSTARopposite;
+end
+l_sim(1:T) = NaN([1 T]);
+c_sim(1:T) = NaN([1 T]);
+stock_sim(1:T) = NaN([1 T]);
+ssk(1:T) = NaN([1 T]);
+ssl(1:T) = NaN([1 T]);
+ssc(1:T) = NaN([1 T]);
+ssstock(1:T) = NaN([1 T]);
+stable_dcdk(1:T) = NaN([1 T]);
+        
+for i = 1:T
+    Z_sim(i)=Z_sim(max(i-1,1))^LAMBDAZ*exp(rho_Z(i));
+    if regimechanges && mod(floor((i-1)/regime_change_frequency),2) == 1
+        P_sim(i) = P_func_greater_than_1(G,P_sim(max(i-1,1)),LAMBDAPopposite,Z_sim(i),Z_sim(max(i-1,1)),Z_sim(max(i-2,1)),Z_sim(max(i-3,1)),Z_sim(max(i-4,1)),MU,rho_P(i));
+    else
+        P_sim(i) = P_func_greater_than_1(G,P_sim(max(i-1,1)),LAMBDAP,Z_sim(i),Z_sim(max(i-1,1)),Z_sim(max(i-2,1)),Z_sim(max(i-3,1)),Z_sim(max(i-4,1)),MU,rho_P(i));
+%         P_func_greater_than_1(G,P_sim(max(i-1,1)),LAMBDAP,Z_sim(i),Z_sim(max(i-1,1)),Z_sim(max(i-2,1)),Z_sim(max(i-3,1)),Z_sim(max(i-4,1)),MU,rho_P(i))
+    end
+    if i == 4 && string(shock) == "historical_endogenous_P" && startopposite
+        P_sim(i) = PSTARopposite;
+    end
+    if i == 4 && string(shock) == "historical_endogenous_P" && ~startopposite
+        P_sim(i) = PSTAR;
+    end
+    if i == 5 && (string(shock) == "historical" || string(shock) == "historical_endogenous_P")
+        k_sim(i) = KSTAR*k0_mult;
+    end
+    if abs(P_sim(i) - 1) > 1e-9
+        [ssk(i),ssl(i),ssc(i),ssstock(i),stable_dcdk(i),k_sim(i+1),c_sim(i),l_sim(i),stock_sim(i)]=model1_P(P_sim(i),k_sim(i),Z_sim(i),LAMBDAZ,sigma_Z,BETTA,DELTA,ALFA,ETA,GAMA,SIGM,G,eta,ZSTAR,1,0.3,0.3,...
+            order,sym_labor_supply,intertemporal_euler_ss,fx,fxp,fy,fyp,f,MathematicaOutputs);
+    else
+        [ssk(i),ssl(i),ssc(i),ssstock(i),stable_dcdk(i),k_sim(i+1),c_sim(i),l_sim(i),stock_sim(i)]=model1_P(P_sim(i),k_sim(i),Z_sim(i),LAMBDAZ,sigma_Z,BETTA,DELTA,ALFA,ETA,GAMA,SIGM,G,eta,ZSTAR,1,0.3,0.3,...
+            order,sym_labor_supply,intertemporal_euler_ss,fx_no_stock,fxp_no_stock,fy_no_stock,fyp_no_stock,f_no_stock,MathematicaOutputs);
+    end
+    k_sim = k_sim(1:T);
+end
     
+dim = size(P_sim);
+exogenous_var_results = [P_sim',ssk',ssl',ssc',ssstock',stable_dcdk',ones([dim(2) 1])*GAMA,ones([dim(2) 1]) * multiplicativeETA,ones([dim(2) 1]) * additiveETA];
 
-rgwkcl_mat = [r_P',riskless_r_P',g_P',w_P',k_P',c_P',l_P',y_P',P_P',Z_P']; % ,riskless_r_alt',another_riskless',E_c'
-if shock == 88
-     rgwkcl_mat = rgwkcl_mat(5:37,:);
-end
-rgwkcl_mat(1,3) = NaN;
-if exist('filename','var')   
-    writematrix(rgwkcl_mat,filename,'Sheet',1,'Range',sheetloc)
+
+w_sim = w_func(k_sim,l_sim,P_sim,Z_sim,ALFA);
+r_sim = little_r(k_sim,l_sim,P_sim,Z_sim,ALFA,DELTA);
+y_sim = y_func(k_sim,l_sim,Z_sim,ALFA);
+g_sim = [NaN,(G*y_sim(2:T)-y_sim(1:T-1))./y_sim(1:T-1)];
+profits_sim = ((P_sim-1)./P_sim).*y_sim;
+
+rgwkcl_mat = [r_sim',g_sim',w_sim',k_sim',c_sim',l_sim',stock_sim',y_sim',P_sim',Z_sim'];
+
+if (string(shock) == "historical" || string(shock) == "historical_endogenous_P")
+    rgwkcl_mat = rgwkcl_mat(5:37,:);
 end
 
-end
