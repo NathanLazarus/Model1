@@ -3,6 +3,12 @@
 #epsilon distinguishable set
 #parallelize
 
+from scipy.special import h_roots
+points, weights = h_roots(8)
+print(weights[0] - 0.00019960407)
+print((h_roots(8)[0]) + 2.9306374202)
+print(1+'x')
+
 import numpy as np
 import matplotlib.pyplot as plt
 from casadi import *
@@ -16,6 +22,7 @@ from numpy.polynomial.hermite_e import *
 import functools
 import operator
 import warnings
+from statsmodels.tsa.arima_process import arma_generate_sample as AR_gen
 
 class RankWarning(UserWarning):
     """Issued by chebfit when the design matrix is rank deficient."""
@@ -23,11 +30,13 @@ class RankWarning(UserWarning):
 
 
 
-periods = 17
-itercount = 1
+periods = 20
 k0 = DM.ones(1)*3
-k0s = np.linspace(0.8,1.6,num=9)
-print(k0s)
+k0s = np.linspace(0.1,5.1,num = 20)
+z0s = np.linspace(0.8,1.2,num = 41)
+degree = 4
+n_iter = 20
+# print(k0s)
 P = 1.25
 nrow_sol_path = 6
 sol_path = np.array([]).reshape(nrow_sol_path,0)
@@ -36,34 +45,30 @@ ncol_reg = 5
 reg_dat = np.array([]).reshape(0,ncol_reg)
 
 
-T = 20
+T = 50
 
 alpha = 0.32
-g = 1.016
-delta = 0.12
-        
-beta = 0.96
-
-
-eta = 1.5
-
-Lmax = 1
-
-np.random.seed(itercount)
+g = 1.014
+delta = 0.08
+beta = 0.98
+lambda_zeta = 0.92
+eta = 2
 sigma_rho = 0.0072
-rho = np.random.randn(T+1)*sigma_rho
-zeta = [1]
-lambda_zeta = 0.96
-for i in range(T+1):
-    zeta.append(zeta[i]**lambda_zeta*np.exp(rho[i]))
-zeta = DM(np.array(zeta[1:T+2]))
+
+lambda_tikhonov = 0.01
+
+
+L_max = 1
+L_min = 1e-6
+C_min = 1e-6
+
 
 
 
 # solve for steady state
-cstar = SX.sym('cstar', 1, 1)
-lstar = SX.sym('lstar', 1, 1)
-kstar = SX.sym('kstar', 1, 1)
+cstar = SX.sym('cstar')
+lstar = SX.sym('lstar')
+kstar = SX.sym('kstar')
 
 obj = 1
 
@@ -82,6 +87,7 @@ star_nlp = {'x':vertcat(cstar,lstar,kstar), 'f':obj, 'g':starconstraint}
 star_solver = nlpsol('star_solver', 'ipopt', star_nlp,{'ipopt.print_level':0})
 star_solution = star_solver(x0=star_x_0,lbg=-1e-14,ubg=1e-14)
 ssc, ssl, ssk = vertsplit(star_solution['x'])
+print(ssl,ssc)
 
 
 
@@ -106,26 +112,6 @@ def transformede(rho,capital,zeta,lfunc,cfunc):
 def logquad(capital,zeta,n,lfunc,cfunc):
     samplepoints,sampleweights = h_roots(n)
     return (transformede(np.exp(np.sqrt(2)*samplepoints),capital,zeta,lfunc,cfunc)/np.sqrt(np.pi))@sampleweights
-
- 
-def condition1(consumption,labour,capital):
-    temp = ((1/g)*(zeta[:T]*capital[:T]**alpha*labour[:T]**(1-alpha) + (1-delta) * capital[:T] - consumption[:T]) - capital[1:T+1])
-    return temp
-    
-def condition2(consumption,labour,capital,lfunc,cfunc):
-    temp = (logquad(capital[:T],zeta[:T],8,lfunc,cfunc)
-         - 1/consumption[:T])
-    return temp #length = T
-
-def condition3(consumption, labour, capital):
-    temp = ((1/P)*(1-alpha)*zeta[:T]*capital[:T]**alpha*labour[:T]**(-alpha)
-        - consumption[:T]*labour[:T]**eta)
-    return temp #length = T
-
-def FOCs(consumption, labour, capital, lfunc, cfunc):
-    return vertcat(condition1(consumption, labour, capital),condition2(consumption, labour, capital, lfunc, cfunc),
-        condition3(consumption, labour, capital))
-
 
 def _nth_slice(i, ndim):
     sl = [np.newaxis] * ndim
@@ -213,7 +199,7 @@ def herme2d_fit(x, y, deg, rcond=None, full=False, w=None):
     #     order = len(deg)
     #     van = vander_f(x, lmax)[:, deg]
     van = _vander_nd_flat((hermevander,hermevander),x,[deg,deg])
-    order = ((deg+1)**2+(deg+1))/2
+    order = van.shape[1] #(deg+1)*(deg+2)/2
 
 
     # set up the least squares matrices in transposed form
@@ -251,6 +237,16 @@ def herme2d_fit(x, y, deg, rcond=None, full=False, w=None):
     # Solve the least squares problem.
     c, resids, rank, s = np.linalg.lstsq(lhsT_over_scl, rhs.T, rcond)
     c = (c.T/scl).T
+    beta = SX.sym('beta',lhsT_over_scl.shape[1],1)
+    objective_fit = sum1((lhsT_over_scl@beta - rhs.T)**2) + lambda_tikhonov * sum1(beta**2)
+    nlp_fit = {'x':beta, 'f':objective_fit}
+    solvr = nlpsol('solvr', 'ipopt', nlp_fit, {'ipopt.print_level':0,'ipopt.tol':1e-12,'ipopt.acceptable_tol':1e-12})
+    sol = solvr(x0=DM.ones(beta.size1()))['x']
+    my_resids = lhsT_over_scl@sol - rhs.T
+    alt_resids = lhsT_over_scl@c - rhs.T
+    my_sol = (sol/scl)
+    c = my_sol
+
 
     # Expand c to include non-fitted coefficients which are set to zero
     if deg.ndim > 0:
@@ -302,13 +298,12 @@ consumption = SX.sym('consumption', T, 1)
 labour = SX.sym('labour', T, 1)
 capital = SX.sym('capital', T+1, 1)
 
-objective = -sum1(consumption)
 
-lower_bound_C = vertcat(DM.ones(T)*0.00001)    # lower bound on the consumption -> not binding anyway
-lower_bound_L = vertcat(DM.zeros(T))
+lower_bound_C = vertcat(DM.zeros(T) + C_min)    # lower bound on the consumption -> not binding anyway
+lower_bound_L = vertcat(DM.zeros(T) + L_min)
 
-upper_bound_C = vertcat(DM.ones(T)*np.inf)
-upper_bound_L = vertcat(DM.ones(T)*Lmax - 1e-9)
+upper_bound_C = vertcat(DM.zeros(T) + np.inf)
+upper_bound_L = vertcat(DM.zeros(T) + L_max) # upper bound on labor also doesn't bind
 
 
 
@@ -318,9 +313,7 @@ upper_bound_L = vertcat(DM.ones(T)*Lmax - 1e-9)
 # Define the start point
 x_0 = vertcat(DM.ones(T), DM.ones(T),DM.ones(T+1))
     
-for iteration in range(7):
-
-    nonlin_con = FOCs(consumption, labour, capital, l_function, c_function)
+for iteration in range(n_iter):
 
     c = np.array([]).reshape(0,1)
     l = np.array([]).reshape(0,1)
@@ -328,14 +321,51 @@ for iteration in range(7):
     z = np.array([]).reshape(0,1)
 
     for k0 in k0s:
-        lower_bound_K = vertcat(k0, 1e-9 * DM.ones(T-1), ssk)
-        upper_bound_K = vertcat(k0, DM.ones(T-1)*np.inf, ssk)
+        np.random.seed(np.where(k0s == k0)[0]*n_iter+iteration)
+        print(iteration,np.where(k0s == k0)[0])
+        rho = np.random.randn(T+1)*sigma_rho
+        toZeta = [np.random.choice(z0s)]
+        for i in range(T+1):
+            if i == (T//4): #extra large shock in the middle
+                toZeta.append(toZeta[i]**lambda_zeta*np.exp(rho[i]*3))
+            else:
+                toZeta.append(toZeta[i]**lambda_zeta*np.exp(rho[i]))
+        zeta = DM(np.array(toZeta[1:T+2]))
+        # zeta = exp(AR_gen([1,-0.9],[1],T,burnin=0,scale = sigma_rho))
+
+
+
+        def condition1(consumption, labour, capital):
+            temp = ((1/g)*(zeta[:T]*capital[:T]**alpha*labour[:T]**(1-alpha) + (1-delta) * capital[:T] - consumption[:T]) - capital[1:T+1])
+            return temp
+            
+        def condition2(consumption, labour, capital, lfunc, cfunc):
+            temp = (logquad(capital[:T],zeta[:T],8,lfunc,cfunc)
+                 - 1/consumption[:T])
+            return temp #length = T
+        
+        def condition3(consumption, labour, capital):
+            temp = ((1/P)*(1-alpha)*zeta[:T]*capital[:T]**alpha*labour[:T]**(-alpha)
+                - consumption[:T]*labour[:T]**eta)
+            return temp #length = T
+        
+        def FOCs(consumption, labour, capital, lfunc, cfunc):
+            return vertcat(condition1(consumption, labour, capital),condition2(consumption, labour, capital, lfunc, cfunc),
+                condition3(consumption, labour, capital))
+
+
+
+        lower_bound_K = vertcat(k0, 1e-9 * DM.ones(T-1), ssk/2)
+        upper_bound_K = vertcat(k0, DM.ones(T-1)*np.inf, ssk/2)
+
         lb_x = vertcat(lower_bound_C, lower_bound_L, lower_bound_K)
         ub_x = vertcat(upper_bound_C, upper_bound_L, upper_bound_K)
-
+        
+        objective = -sum1(consumption)
+        nonlin_con = FOCs(consumption, labour, capital, l_function, c_function)
         nlp = {'x':vertcat(consumption,labour,capital), 'f':objective, 'g':nonlin_con}
-        solver = nlpsol('solver', 'ipopt', nlp,{'ipopt.print_level':0})
-        solution = solver(x0=x_0,lbx=lb_x,ubx=ub_x,lbg=vertcat(DM.zeros(3*T)-1e-14),ubg=vertcat(DM.zeros(3*T)+1e-14))
+        solver = nlpsol('solver', 'ipopt', nlp,{'ipopt.print_level':5})
+        solution = solver(x0=x_0,lbx=lb_x,ubx=ub_x,lbg=vertcat(DM.zeros(3*T)-1e-12),ubg=vertcat(DM.zeros(3*T)+1e-12))
         sol = solution['x']
         c_sim, l_sim, k_sim = sol[:T],sol[T:2*T],sol[2*T:]
         # r = (1/P)*(alpha)*k[:T]**(alpha-1)*l**(1-alpha)-delta
@@ -345,49 +375,14 @@ for iteration in range(7):
         k = np.concatenate([k,k_sim[:periods]])
         z = np.concatenate([z,zeta[:periods]])
 
-    # print('*****&*&')
-    # print(np.array([c,l,k,z]))
-
-
-
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    #impliedr = c/c[1:T]
-    # sol_path = np.concatenate([sol_path,np.array(vertcat(c[:periods],l[:periods],k[:periods],zeta[:periods],np.ones(periods)*P,r[:periods])).reshape(nrow_sol_path,periods)],axis=1)
-    # print(c[100],l[100],k[100],zeta[100])
-    # print(c[40],l[40],k[40],zeta[40])
-    # print(l[T-5:],c[T-5:],k[T-5:])
-    # print(FOCs(c,l,k,l_function,c_function))
-    # print('ee')
-    # print(mmax(FOCs(c,l,k,l_function,c_function)[:T]),mmax(FOCs(c,l,k,l_function,c_function)[T:2*T-1]),mmax(FOCs(c,l,k,l_function,c_function)[2*T:]))
-    # print(sum1(FOCs(c,l,k,l_function,c_function)**10)**(1/10))
-    # altl, altc = l[133], c[133]
-
-
-    # deg = 2
-    # test = SX.sym('test',(deg+1)**2,1)
-    # ls_c = sum1((c[:periods]-(hermevander2d(np.array(k[:periods]),np.array(zeta[:periods]),[deg,deg])@test))**2)
-
-    # x_0_reg = DM.ones((deg+1)**2)
-    # nlp = {'x':test, 'f':ls_c}
-    # solver = nlpsol('solver', 'ipopt', nlp,{'ipopt.print_level':0})
-    # sol_c = solver(x0=x_0)['x']
-   
-    # np.savetxt("whatshappening"+str(iteration)+".csv", np.concatenate((np.array(k[:periods]),np.array(zeta[:periods]),np.array(c[:periods]))),delimiter=",")
-    degree = 5
     c_coefs = herme2d_fit([k,z],c,degree).T
     if c_coefs.shape[0] > 1:
         c_coefs = c_coefs.T
     
     def c_function(k,z):
-        return _vander_nd_flat_SYM((hermevander_casadiSYM,hermevander_casadiSYM),[k,z],[degree,degree]) @ c_coefs.T
+        c_poly = _vander_nd_flat_SYM((hermevander_casadiSYM,hermevander_casadiSYM),[k,z],[degree,degree]) @ c_coefs.T
+        output_length = c_poly.shape[0]
+        return fmax(c_poly,SX.zeros(output_length)+C_min)
 
     l_coefs = herme2d_fit([k,z],l,degree).T
     if l_coefs.shape[0] > 1:
@@ -397,50 +392,42 @@ for iteration in range(7):
     def l_function(k,z):
         l_poly = _vander_nd_flat_SYM((hermevander_casadiSYM,hermevander_casadiSYM),[k,z],[degree,degree]) @ l_coefs.T
         output_length = l_poly.shape[0]
-        return fmax(l_poly,SX.zeros(output_length))
+        return fmax(l_poly,SX.zeros(output_length)+L_min)
 
-    # cap = SX.sym('cap')
-    # zet = SX.sym('zet')
-    # print(_vander_nd_flat_SYM((hermevander_casadiSYM,hermevander_casadiSYM),[cap,zet],[1,1]))
-    # print(_vander_nd_flat((hermevander,hermevander),[DM.ones(2)*ssk,DM.ones(2)],[degree,degree]) @ l_coefs.T)
-    # print(l_coefs.shape)
-    # print(_vander_nd_flat((hermevander,hermevander),[DM.ones(2)*ssk,DM.ones(2)],[degree,degree]))
-    # print(_vander_nd_flat_SYM((hermevander_casadiSYM,hermevander_casadiSYM),[DM.ones(2)*ssk,DM.ones(2)],[degree,degree]))
-    print('wut')
     print(l_coefs)
     print(c_coefs)
     print(l_function(DM.ones(5)*ssk,DM.ones(5)))
     print(c_function(DM.ones(2)*ssk,DM.ones(2)))
     # altk = k[133]
-T = 2
-zeta = DM.ones(3)
-# print(FOCs(c_function(DM.ones(3)*ssk,DM.ones(3)),l_function(DM.ones(3)*ssk,DM.ones(3)),DM.ones(3)*ssk,l_function,c_function))
-# print(altk)
-# print(altl,altc)
-# print(FOCs(c_function(DM.ones(3)*altk,DM.ones(3)),l_function(DM.ones(3)*altk,DM.ones(3)),DM.ones(3)*altk,l_function,c_function))
-# print('!!!!!!!!!!!!!!!!!')
-# print(ssk)
-# print(ssl)
-# print(ssc)
-# print(c_coefs)
-# print(l_coefs)
-    # print(sol_path)
+# T = 2
+# zeta = DM.ones(3)
+        # print(FOCs(c_function(DM.ones(3)*ssk,DM.ones(3)),l_function(DM.ones(3)*ssk,DM.ones(3)),DM.ones(3)*ssk,l_function,c_function))
+        # print(altk)
+        # print(altl,altc)
+        # print(FOCs(c_function(DM.ones(3)*altk,DM.ones(3)),l_function(DM.ones(3)*altk,DM.ones(3)),DM.ones(3)*altk,l_function,c_function))
+        # print('!!!!!!!!!!!!!!!!!')
+        # print(ssk)
+        # print(ssl)
+        # print(ssc)
+        # print(c_coefs)
+        # print(l_coefs)
+            # print(sol_path)
 
 
 
 
 
-    # def c(k,z):
-    #     hermevander2d(k,z,[deg,deg])@sol_c
+            # def c(k,z):
+            #     hermevander2d(k,z,[deg,deg])@sol_c
 
-    # ls_l = sum1((l[:periods]-(hermevander2d(k[:periods],zeta[:periods],[deg,deg])@test))**2)
-    # nlp = {'x':test, 'f':ls_l}
-    # solver = nlpsol('solver', 'ipopt', nlp,{'ipopt.print_level':0})
-    # sol_l = solver(x0=x_0)['x']
+            # ls_l = sum1((l[:periods]-(hermevander2d(k[:periods],zeta[:periods],[deg,deg])@test))**2)
+            # nlp = {'x':test, 'f':ls_l}
+            # solver = nlpsol('solver', 'ipopt', nlp,{'ipopt.print_level':0})
+            # sol_l = solver(x0=x_0)['x']
 
-    # def l(k,z):
-    #     hermevander2d(k,z,[deg,deg])@sol_l
+            # def l(k,z):
+            #     hermevander2d(k,z,[deg,deg])@sol_l
 
-    # print(x)
-    # print(sol_c)
-    # print(sol_l)
+            # print(x)
+            # print(sol_c)
+            # print(sol_l)
